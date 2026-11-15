@@ -18,12 +18,14 @@ export const HOLD_R = 150;
 export const HOLD_SPEED_MUL = 2.4;
 export const HOLD_BRANCH_MUL = 3.5;
 export const HOLD_STEER = 1.8;
-/** Fertility: after first fusion once the network reaches this many segments. */
-export const WORKER_MIN_SEGS = 3200;
+/** Fertility: after first fusion, once the network is dense enough and a beat has passed. */
+export const WORKER_MIN_SEGS = 1500;
+/** Minimum seconds after first fusion before workers (keeps fusion→workers gap ≤90s). */
+export const WORKER_DELAY = 78;
 export const MAX_WORKERS = 150;
-export const WORKER_SPAWN_RATE = 0.55;
+export const WORKER_SPAWN_RATE = 0.75;
 export const WORKER_SPEED = 55;
-export const BIG_APPEAR_T = 170;
+export const BIG_APPEAR_T = 235;
 export const BIG_R = 32;
 export const BIG_EDGE = 48;
 export const CAM_ZOOM_OUT = 0.72;
