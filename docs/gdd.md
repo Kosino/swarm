@@ -1,25 +1,25 @@
-# Projekt: Apis + Mycelium (pracovní název)
+# SWARM
 **Game Design Document · zdroj pravdy**
-Verze: 0.2 (vývoj v Grok Builderu; směr early game od Honzy) · Založeno: 15. 11. 2026
+Verze: 0.3 (zdroj pravdy; reference: reference/projekt_hmyzi_hra_SWARM_full.md, visuals-mvp/) · Založeno: 15. 11. 2026
 Stav sekcí: ✅ schváleno · 🟡 návrh · ❓ otevřená otázka
 
 ---
 
 ## 1. Vize (🟡)
-Budovatelská strategie, kde hráč řídí biomechanický úl. Včely (**Apis**) jsou napůl hmyz, napůl stroj: chitin s mosaznými klouby, křídla s žilkováním jako tištěné spoje, med jako palivo i stavební pojivo. Pod úlem roste **Mycelium**, houbová síť, která funguje jako logistika, komunikace a paměť kolonie. Hra stojí na napětí mezi dvěma systémy: úl roste nahoru a ven (stavba, výroba), mycelium roste dolů a do šířky (propojení, recyklace, šíření).
+Budovatelská strategie, kde hráč řídí biomechanický úl. Včely (**Apis**) jsou napůl hmyz, napůl stroj: chitin s mosaznými klouby, křídla s žilkováním jako tištěné spoje, med jako palivo i stavební pojivo. Druhým Rodem je **Mycelium**, hustá síť hyf s vlastními jednotkami. Apis a Mycelium jsou dva oddělené hratelné Rody, každý na své výrazně odlišné planetě.
 
 **Jedna věta:** „Postav živý stroj z včel a hub a přežij sezóny v rozpadajícím se světě.“
 
 **Pilíře:**
 1. **Živá stavba:** budovy rostou, stárnou a dají se opravit nebo zrecyklovat.
-2. **Dvě vrstvy:** povrch (Apis) a podzemí (Mycelium) se hrají jako jedna propojená mapa.
+2. **Dva Rody, dvě fantasy:** Apis staví centralizovaný úl, Mycelium prorůstá sítí.
 3. **Roj místo jednotek:** hráč nedává příkazy jednotlivcům, nastavuje priority a feromonové signály.
 4. **Biomechanická krása:** čitelná, detailní 2D grafika s mechanickými detaily.
 
 ## 2. Fantasy a svět (🟡)
 - Svět po kolapsu, kde přírodu a stroje už nejde oddělit. Rozpadlé lidské stroje jsou zdrojem kovu.
 - **Apis:** královna jako „jádro“ (procesor + líheň), kasty: dělnice, sběračky, stavitelky, strážkyně, opravářky.
-- **Mycelium:** symbiont, ne jednotka. Rozvádí živiny, rozkládá odpad a mrtvé jedince na suroviny, nese signály mezi vzdálenými částmi úlu.
+- **Mycelium:** samostatný Rod, síť hyf s hyfálními dělníky, kteří se po síti pohybují (cvrkot). Rozvádí živiny a rozkládá odpad na suroviny.
 - **Hrozby:** sezóny (zima, sucho), parazité (roztoči-drony), rez, konkurenční roje, plísňová infekce sítě.
 - ❓ Tón: spíš idylický a kontemplativní, nebo drsný survival?
 
@@ -80,6 +80,7 @@ Specializovaní boti (navrhnu až po schválení): Systems Designer, Art Pipelin
 | 15. 11. 2026 | Založen GDD v0.1 | 🟡 |
 | 15. 11. 2026 | Vývoj výhradně v Grok Builderu (2D canvas web), tým: Builder Engineer, Svět & UX, Art Pipeline; tokenová disciplína | ✅ |
 | 15. 11. 2026 | MVP = Apis + Mycelium, early game bez metrik 10–15 min | ✅ |
+| 15. 11. 2026 | Rozhodnutí Honzy: název SWARM; prvních 15 min bez panelů a MU/S, Korpus HUD až v mid-game; kód staví na Mycelium buildu 1 (repo Kosino/swarm), Korpus slice jen reference; 2D shora pro early game, izometrie později; Seeds jen náznak na konci Věku 3; schválené koncepty Visuals-mvp jsou závazná vizuální reference | ✅ |
 | 15. 11. 2026 | Dělníci na hyfách (cvrkot) od cca 3:40 schváleni; podržení + fúze smyček do buildu č. 2; zvuk až od buildu č. 2 | ✅ |
 
 
