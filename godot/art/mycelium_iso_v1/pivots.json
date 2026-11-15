@@ -1,0 +1,206 @@
+{
+  "1x": {
+    "myc_iso_puda_a": [
+      64.0,
+      32.0
+    ],
+    "myc_iso_puda_b": [
+      64.0,
+      32.0
+    ],
+    "myc_iso_puda_c": [
+      64.0,
+      32.0
+    ],
+    "myc_iso_puda_vlhka": [
+      64.0,
+      32.0
+    ],
+    "myc_iso_skvrna": [
+      64.0,
+      32.0
+    ],
+    "myc_iso_hyfa_NE": [
+      64.0,
+      32.0
+    ],
+    "myc_iso_hyfa_SE": [
+      64.0,
+      32.0
+    ],
+    "myc_iso_hyfa_NW": [
+      64.0,
+      32.0
+    ],
+    "myc_iso_hyfa_SW": [
+      64.0,
+      32.0
+    ],
+    "myc_iso_hyfa_tip_NE": [
+      64.0,
+      32.0
+    ],
+    "myc_iso_hyfa_tip_SE": [
+      64.0,
+      32.0
+    ],
+    "myc_iso_hyfa_tip_NW": [
+      64.0,
+      32.0
+    ],
+    "myc_iso_hyfa_tip_SW": [
+      64.0,
+      32.0
+    ],
+    "myc_iso_hyfa_tip": [
+      64.0,
+      32.0
+    ],
+    "myc_iso_zarodek": [
+      41.0,
+      100.0
+    ],
+    "myc_iso_kotva": [
+      68.0,
+      122.0
+    ],
+    "myc_iso_plodnice": [
+      23.0,
+      68.0
+    ],
+    "myc_iso_delnik_NE": [
+      16.0,
+      25.0
+    ],
+    "myc_iso_delnik_SE": [
+      16.0,
+      25.0
+    ],
+    "myc_iso_delnik_NW": [
+      16.0,
+      25.0
+    ],
+    "myc_iso_delnik_SW": [
+      16.0,
+      25.0
+    ],
+    "myc_iso_stroj_cely": [
+      135.0,
+      264.0
+    ],
+    "myc_iso_stroj_obrostly": [
+      142.0,
+      274.0
+    ],
+    "myc_iso_brouk_cely": [
+      138.0,
+      222.0
+    ],
+    "myc_iso_brouk_obrostly": [
+      146.0,
+      225.0
+    ]
+  },
+  "2x": {
+    "myc_iso_puda_a_2x": [
+      128.0,
+      64.0
+    ],
+    "myc_iso_puda_b_2x": [
+      128.0,
+      64.0
+    ],
+    "myc_iso_puda_c_2x": [
+      128.0,
+      64.0
+    ],
+    "myc_iso_puda_vlhka_2x": [
+      128.0,
+      64.0
+    ],
+    "myc_iso_skvrna_2x": [
+      128.0,
+      64.0
+    ],
+    "myc_iso_hyfa_NE_2x": [
+      128.0,
+      64.0
+    ],
+    "myc_iso_hyfa_SE_2x": [
+      128.0,
+      64.0
+    ],
+    "myc_iso_hyfa_NW_2x": [
+      128.0,
+      64.0
+    ],
+    "myc_iso_hyfa_SW_2x": [
+      128.0,
+      64.0
+    ],
+    "myc_iso_hyfa_tip_NE_2x": [
+      128.0,
+      64.0
+    ],
+    "myc_iso_hyfa_tip_SE_2x": [
+      128.0,
+      64.0
+    ],
+    "myc_iso_hyfa_tip_NW_2x": [
+      128.0,
+      64.0
+    ],
+    "myc_iso_hyfa_tip_SW_2x": [
+      128.0,
+      64.0
+    ],
+    "myc_iso_hyfa_tip_2x": [
+      128.0,
+      64.0
+    ],
+    "myc_iso_zarodek_2x": [
+      82.0,
+      200.0
+    ],
+    "myc_iso_kotva_2x": [
+      136.0,
+      244.0
+    ],
+    "myc_iso_plodnice_2x": [
+      46.0,
+      136.0
+    ],
+    "myc_iso_delnik_NE_2x": [
+      32.0,
+      50.0
+    ],
+    "myc_iso_delnik_SE_2x": [
+      32.0,
+      50.0
+    ],
+    "myc_iso_delnik_NW_2x": [
+      32.0,
+      50.0
+    ],
+    "myc_iso_delnik_SW_2x": [
+      32.0,
+      50.0
+    ],
+    "myc_iso_stroj_cely_2x": [
+      270.0,
+      528.0
+    ],
+    "myc_iso_stroj_obrostly_2x": [
+      284.0,
+      548.0
+    ],
+    "myc_iso_brouk_cely_2x": [
+      276.0,
+      444.0
+    ],
+    "myc_iso_brouk_obrostly_2x": [
+      292.0,
+      450.0
+    ]
+  }
+}
