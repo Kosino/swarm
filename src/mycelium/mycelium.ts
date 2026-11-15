@@ -28,6 +28,7 @@ import {
 } from "./config";
 import { playDum } from "./sound";
 import type { Seg, Tip, Patch, Pulse, Ring, Speck, Worker, SimMetrics } from "./types";
+import { mountCanvas } from "../core";
 
 function wrap(a: number): number {
   while (a > Math.PI) a -= 2 * Math.PI;
@@ -716,52 +717,6 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
 
 /** Mount mycelium sim on a canvas. Returns cleanup. */
 export function startMycelium(cv: HTMLCanvasElement): () => void {
-  const ctx = cv.getContext("2d");
-  if (!ctx) return () => {};
-
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  cv.width = W * dpr;
-  cv.height = H * dpr;
-
   const world = createMyceliumWorld();
-
-  const toWorld = (e: PointerEvent): [number, number] => {
-    const r = cv.getBoundingClientRect();
-    return [((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H];
-  };
-
-  const onDown = (e: PointerEvent) => {
-    const [x, y] = toWorld(e);
-    cv.setPointerCapture(e.pointerId);
-    world.pointerDown(x, y);
-  };
-  const onMove = (e: PointerEvent) => {
-    const [x, y] = toWorld(e);
-    world.pointerMove(x, y);
-  };
-  const onUp = () => world.pointerUp();
-
-  cv.addEventListener("pointerdown", onDown);
-  cv.addEventListener("pointermove", onMove);
-  cv.addEventListener("pointerup", onUp);
-  cv.addEventListener("pointercancel", onUp);
-
-  let last = performance.now();
-  let raf = 0;
-  const loop = (now: number) => {
-    const dt = Math.min(0.05, (now - last) / 1000);
-    last = now;
-    world.update(dt);
-    world.draw(ctx, dpr);
-    raf = requestAnimationFrame(loop);
-  };
-  raf = requestAnimationFrame(loop);
-
-  return () => {
-    cancelAnimationFrame(raf);
-    cv.removeEventListener("pointerdown", onDown);
-    cv.removeEventListener("pointermove", onMove);
-    cv.removeEventListener("pointerup", onUp);
-    cv.removeEventListener("pointercancel", onUp);
-  };
+  return mountCanvas(cv, world, W, H);
 }

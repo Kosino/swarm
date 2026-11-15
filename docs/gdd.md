@@ -1,6 +1,6 @@
 # SWARM
 **Game Design Document · zdroj pravdy**
-Verze: 0.3 (zdroj pravdy; reference: reference/projekt_hmyzi_hra_SWARM_full.md, visuals-mvp/) · Založeno: 15. 11. 2026
+Verze: 0.4 (zdroj pravdy; reference: reference/projekt_hmyzi_hra_SWARM_full.md, visuals-mvp/) · Založeno: 15. 11. 2026
 Stav sekcí: ✅ schváleno · 🟡 návrh · ❓ otevřená otázka
 
 ---
@@ -82,6 +82,7 @@ Specializovaní boti (navrhnu až po schválení): Systems Designer, Art Pipelin
 | 15. 11. 2026 | MVP = Apis + Mycelium, early game bez metrik 10–15 min | ✅ |
 | 15. 11. 2026 | Rozhodnutí Honzy: název SWARM; prvních 15 min bez panelů a MU/S, Korpus HUD až v mid-game; kód staví na Mycelium buildu 1 (repo Kosino/swarm), Korpus slice jen reference; 2D shora pro early game, izometrie později; Seeds jen náznak na konci Věku 3; schválené koncepty Visuals-mvp jsou závazná vizuální reference | ✅ |
 | 15. 11. 2026 | Dělníci na hyfách (cvrkot) od cca 3:40 schváleni; podržení + fúze smyček do buildu č. 2; zvuk až od buildu č. 2 | ✅ |
+| 15. 11. 2026 | Apis build č. 3 (0–5 min): vosk=jas roje, komory+líhnutí, odkázání na květiny, prstenec, živý provoz, velký let ke zlatému stromu; výběr Rodu `?rod=apis\|mycelium` | ✅ |
 
 
 ---
@@ -94,4 +95,5 @@ Specializovaní boti (navrhnu až po schválení): Systems Designer, Art Pipelin
 - **Planety:** Apis teplá, otevřená, květiny. Mycelium vlhká, stinná, prorůstající.
 - Wow moment nejpozději každých 60–90 s. Metriky se odemykají až po 10–15 min, postupně a volitelně.
 - Pořadí buildů: (1) Mycelium 0–2 min, (2) Mycelium 0–5 min, (3) Apis 0–2 min, (4) Apis 0–5 min, (5) planety v grafice + milníky do 10 min.
-- Scénář Mycelium 0–5: artifacts/zadani/scenar_mycelium_0-5.md
+- Scénář Mycelium 0–5: docs/zadani/scenar_mycelium_0-5.md
+- Scénář Apis 0–5: docs/zadani/scenar_apis_0-5.md
