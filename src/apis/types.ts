@@ -20,6 +20,8 @@ export type Flower = {
   bloom: number;
   visits: number;
   tree?: boolean;
+  /** Soft pulse when idle worker twitches toward it. */
+  hint: number;
 };
 
 export type WorkerBee = {
@@ -31,6 +33,9 @@ export type WorkerBee = {
   outbound: boolean;
   carrying: boolean;
   phase: number;
+  /** Countdown while leaning toward a hint flower. */
+  twitch: number;
+  hintFlower: number;
 };
 
 export type Route = {

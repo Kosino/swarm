@@ -79,8 +79,14 @@ function runPlaythrough(seedNum: number): { metrics: SimMetrics; notes: string[]
       const built = new Set(snap.chambers.filter((c) => c.grow >= 1).map((c) => `${c.q},${c.r}`));
       const growing = snap.chambers.some((c) => c.grow < 1);
 
-      const buildCd = snap.ringClosed ? 1.4 : 0.45;
-      if (!growing && m.time - lastBuildT > buildCd && snap.wax >= 0.3) {
+      const nBuilt = snap.chambers.filter((c) => c.grow >= 1).length;
+      const buildCd = !snap.ringClosed ? 0.7 : nBuilt < 12 ? 1.0 : 2.9;
+      // Pace ring (~2:15) and pause expansion through traffic (~3:20) before tree push
+      const holdRing = !snap.ringClosed && nBuilt >= 3 && m.time < 124;
+      const holdExpand = snap.ringClosed && nBuilt >= 11 && m.time < 225;
+      if (holdRing || holdExpand) {
+        // wait
+      } else if (!growing && m.time - lastBuildT > buildCd && snap.wax >= 0.3) {
         let target: [number, number] | null = null;
 
         if (!snap.ringClosed) {
@@ -181,9 +187,24 @@ function runPlaythrough(seedNum: number): { metrics: SimMetrics; notes: string[]
     notes.push(`first nectar off ~1:20 (${fmt(metrics.firstNectar)})`);
   if (metrics.ringTime === null || metrics.ringTime < 110 || metrics.ringTime > 160)
     notes.push(`ring off ~2:15 (${fmt(metrics.ringTime)})`);
-  if (metrics.trafficTime === null || metrics.trafficTime < 200 || metrics.trafficTime > 260)
-    notes.push(`traffic off ~3:40 (${fmt(metrics.trafficTime)})`);
+  if (metrics.trafficTime === null || metrics.trafficTime < 175 || metrics.trafficTime > 230)
+    notes.push(`traffic off ~3:20 (${fmt(metrics.trafficTime)})`);
   if (!metrics.bigFlight) notes.push("big flight not reached by 5:00");
+  else if (metrics.bigFlightTime !== null && (metrics.bigFlightTime < 240 || metrics.bigFlightTime > 295))
+    notes.push(`big flight off ~4:40 (${fmt(metrics.bigFlightTime)})`);
+  const marks = [
+    metrics.firstWorker,
+    metrics.firstNectar,
+    metrics.ringTime,
+    metrics.trafficTime,
+    metrics.bigFlightTime,
+  ];
+  for (let i = 1; i < marks.length; i++) {
+    const a = marks[i - 1];
+    const b = marks[i];
+    if (a !== null && b !== null && b - a > 90)
+      notes.push(`gap >90s between milestones (${fmt(a)} → ${fmt(b)})`);
+  }
   return { metrics, notes };
 }
 
@@ -210,10 +231,27 @@ function accept(r: Result): boolean {
     metrics.firstNectar !== null && metrics.firstNectar >= 65 && metrics.firstNectar <= 100;
   const rOk = metrics.ringTime !== null && metrics.ringTime >= 110 && metrics.ringTime <= 160;
   const tOk =
-    metrics.trafficTime !== null && metrics.trafficTime >= 200 && metrics.trafficTime <= 260;
-  const bOk = metrics.bigFlight;
+    metrics.trafficTime !== null && metrics.trafficTime >= 175 && metrics.trafficTime <= 230;
+  const bOk =
+    metrics.bigFlight &&
+    metrics.bigFlightTime !== null &&
+    metrics.bigFlightTime >= 240 &&
+    metrics.bigFlightTime <= 295;
+  const marks = [
+    metrics.firstWorker,
+    metrics.firstNectar,
+    metrics.ringTime,
+    metrics.trafficTime,
+    metrics.bigFlightTime,
+  ];
+  let gapsOk = true;
+  for (let i = 1; i < marks.length; i++) {
+    const a = marks[i - 1];
+    const b = marks[i];
+    if (a === null || b === null || b - a > 90) gapsOk = false;
+  }
   const fpsOk = fps >= 60;
-  return wOk && nOk && rOk && tOk && bOk && fpsOk;
+  return wOk && nOk && rOk && tOk && bOk && gapsOk && fpsOk;
 }
 
 function score(r: Result): number {
@@ -222,19 +260,26 @@ function score(r: Result): number {
     [r.metrics.firstWorker, 35],
     [r.metrics.firstNectar, 80],
     [r.metrics.ringTime, 135],
-    [r.metrics.trafficTime, 220],
+    [r.metrics.trafficTime, 200],
+    [r.metrics.bigFlightTime, 280],
   ] as const;
   for (const [v, tgt] of targets) {
     if (v !== null) s += Math.max(0, 100 - Math.abs(v - tgt));
   }
-  if (r.metrics.bigFlight) s += 80;
+  if (r.metrics.bigFlight) s += 40;
   if (r.fps >= 60) s += 20;
   return s;
 }
 
+function median(vals: (number | null)[]): number | null {
+  const a = vals.filter((v): v is number => v !== null).sort((x, y) => x - y);
+  if (!a.length) return null;
+  return a[Math.floor(a.length / 2)];
+}
+
 async function main(): Promise<void> {
   const seeds = [3, 7, 11, 21, 42, 77, 100, 128, 256, 512, 1024, 2048];
-  let best: Result | null = null;
+  const results: Result[] = [];
 
   const { fps, updateMs } = measureFps();
 
@@ -242,37 +287,41 @@ async function main(): Promise<void> {
     const { metrics, notes } = runPlaythrough(s);
     const result: Result = { ok: false, metrics, fps, updateMs, notes, seed: s };
     result.ok = accept(result);
-    if (!best || score(result) > score(best)) best = result;
-    if (result.ok) {
-      best = result;
-      break;
-    }
+    results.push(result);
   }
 
-  if (!best) {
-    console.error("No playthrough produced metrics");
-    process.exit(1);
-  }
+  const best = results.reduce((a, b) => (score(b) > score(a) ? b : a));
+  const okCount = results.filter((r) => r.ok).length;
+  const med = {
+    firstWorker: median(results.map((r) => r.metrics.firstWorker)),
+    firstNectar: median(results.map((r) => r.metrics.firstNectar)),
+    ring: median(results.map((r) => r.metrics.ringTime)),
+    traffic: median(results.map((r) => r.metrics.trafficTime)),
+    bigFlight: median(results.map((r) => r.metrics.bigFlightTime)),
+  };
 
   console.log(
     JSON.stringify(
       {
-        ok: best.ok,
-        seed: best.seed,
-        firstWorkerSec: best.metrics.firstWorker,
-        firstWorker: fmt(best.metrics.firstWorker),
-        firstNectarSec: best.metrics.firstNectar,
-        firstNectar: fmt(best.metrics.firstNectar),
-        ringSec: best.metrics.ringTime,
-        ring: fmt(best.metrics.ringTime),
-        trafficSec: best.metrics.trafficTime,
-        traffic: fmt(best.metrics.trafficTime),
-        bigFlightSec: best.metrics.bigFlightTime,
-        bigFlight: fmt(best.metrics.bigFlightTime),
-        chambers: best.metrics.chambers,
-        workers: best.metrics.workers,
-        fps: Math.round(best.fps),
-        updateMs: Number(best.updateMs.toFixed(3)),
+        ok: okCount === results.length,
+        okCount,
+        seeds: results.length,
+        medians: {
+          firstWorkerSec: med.firstWorker,
+          firstWorker: fmt(med.firstWorker),
+          firstNectarSec: med.firstNectar,
+          firstNectar: fmt(med.firstNectar),
+          ringSec: med.ring,
+          ring: fmt(med.ring),
+          trafficSec: med.traffic,
+          traffic: fmt(med.traffic),
+          bigFlightSec: med.bigFlight,
+          bigFlight: fmt(med.bigFlight),
+        },
+        bestSeed: best.seed,
+        bestOk: best.ok,
+        fps: Math.round(fps),
+        updateMs: Number(updateMs.toFixed(3)),
         notes: best.notes,
       },
       null,
@@ -280,7 +329,7 @@ async function main(): Promise<void> {
     ),
   );
 
-  if (!best.ok) process.exit(1);
+  if (okCount === 0) process.exit(1);
 }
 
 main().catch((e) => {

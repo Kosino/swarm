@@ -18,9 +18,14 @@ import {
   REACH_BASE,
   REACH_PER_CHAMBER,
   TREE_MIN_CHAMBERS,
+  TREE_ATTRACT_LEAD,
   TRAFFIC_WORKERS,
   TRAFFIC_ROUTES,
   BLOOM_MAX,
+  NECTAR_FULL_CD,
+  TWITCH_INTERVAL,
+  TWITCH_DUR,
+  SHIVER_DUR,
   CAM_ZOOM_OUT,
   CAM_ZOOM_DUR,
   FLOWER_MIN,
@@ -29,7 +34,7 @@ import {
   TREE_R,
   TREE_EDGE,
 } from "./config";
-import { playDum } from "./sound";
+import { playDum, playBzz, playChime } from "./sound";
 import type {
   Chamber,
   Flower,
@@ -138,6 +143,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
           ph: rnd() * 6,
           bloom: 0.25 + rnd() * 0.2,
           visits: 0,
+          hint: 0,
         });
         placed++;
       }
@@ -157,6 +163,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
         ph: rnd() * 6,
         bloom: 0.25 + rnd() * 0.2,
         visits: 0,
+        hint: 0,
       });
     }
   }
@@ -188,6 +195,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
       bloom: 0.55,
       visits: 0,
       tree: true,
+      hint: 0,
     });
   }
 
@@ -213,12 +221,17 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
   let trafficTime: number | null = null;
   let firstWorker: number | null = null;
   let firstNectar: number | null = null;
+  let lastFullNectar = -NECTAR_FULL_CD;
   let bigFlight = false;
   let bigFlightTime: number | null = null;
   let bigFlightT = 0;
   let camZoom = 1;
   let camZoomTarget = 1;
   let hiveScale = 1;
+  let treeAttract = false;
+  let treeAttractPulse = 0;
+  let lastChime = -10;
+  let twitchCd = TWITCH_INTERVAL * 0.4;
 
   let dragging = false;
   let dsx = 0;
@@ -290,7 +303,8 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     if (!isAdjacentToHive(q, r)) return false;
     if (chambers.has(hexKey(q, r))) return false;
     if (wax < WAX_MIN) {
-      shiver = 0.45;
+      shiver = SHIVER_DUR;
+      if (!silent) playBzz();
       return false;
     }
 
@@ -355,6 +369,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
           ph: rnd() * 6,
           bloom: 0.15,
           visits: 0,
+          hint: 0,
         });
       }
     }
@@ -442,6 +457,8 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
             outbound: true,
             carrying: false,
             phase: rnd() * 6,
+            twitch: 0,
+            hintFlower: -1,
           });
           if (firstWorker === null) firstWorker = time;
           corePulse = Math.max(corePulse, 0.6);
@@ -459,13 +476,52 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
 
     // Workers fly
     const [hx0, hy0] = hiveCenter();
+    const rch = reach();
+
+    // Idle twitch toward nearest reachable flower (first-move hint)
+    twitchCd -= dt;
+    if (twitchCd <= 0) {
+      twitchCd = TWITCH_INTERVAL + rnd() * 1.4;
+      const idle = workers.filter((w) => w.flower < 0 && w.twitch <= 0);
+      if (idle.length) {
+        const w = idle[Math.floor(rnd() * idle.length)];
+        let best = -1;
+        let bd = rch + 8;
+        for (let i = 0; i < flowers.length; i++) {
+          const f = flowers[i];
+          if (f.tree) continue;
+          const d = Math.hypot(f.x - hx0, f.y - hy0);
+          if (d < bd) {
+            bd = d;
+            best = i;
+          }
+        }
+        if (best >= 0) {
+          w.twitch = TWITCH_DUR;
+          w.hintFlower = best;
+          flowers[best].hint = 1;
+        }
+      }
+    }
+
     for (const w of workers) {
       w.phase += dt;
+      if (w.twitch > 0) w.twitch = Math.max(0, w.twitch - dt);
       if (w.flower < 0) {
-        // Idle orbit near hive edge
+        // Idle orbit near hive edge; occasional lean toward hint flower
         const ang = w.phase * 0.8;
-        w.x = hx0 + Math.cos(ang) * (22 + (w.phase % 5));
-        w.y = hy0 + Math.sin(ang) * (18 + (w.phase % 4));
+        let ox = hx0 + Math.cos(ang) * (22 + (w.phase % 5));
+        let oy = hy0 + Math.sin(ang) * (18 + (w.phase % 4));
+        if (w.twitch > 0 && w.hintFlower >= 0) {
+          const hf = flowers[w.hintFlower];
+          if (hf) {
+            const k = (w.twitch / TWITCH_DUR) * 0.35;
+            ox += (hf.x - hx0) * k * 0.12;
+            oy += (hf.y - hy0) * k * 0.12;
+          }
+        }
+        w.x = ox;
+        w.y = oy;
         continue;
       }
       const f = flowers[w.flower];
@@ -496,30 +552,55 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
           if (w.carrying) {
             w.carrying = false;
             wax = Math.min(WAX_MAX, wax + WAX_NECTAR);
-            if (firstNectar === null) firstNectar = time;
-            // Flood comb amber + pulse to core
-            for (const ch of chambers.values()) {
-              if (ch.grow >= 1) {
-                ch.amber = Math.min(1, ch.amber + 0.45);
-                ch.pulse = 1;
+            const isFirst = firstNectar === null;
+            if (isFirst) firstNectar = time;
+            const full = isFirst || time - lastFullNectar >= NECTAR_FULL_CD;
+            if (full) {
+              lastFullNectar = time;
+              for (const ch of chambers.values()) {
+                if (ch.grow >= 1) {
+                  ch.amber = Math.min(1, ch.amber + 0.45);
+                  ch.pulse = 1;
+                }
+              }
+              pulses.push({
+                x0: w.x,
+                y0: w.y,
+                x1: hx0,
+                y1: hy0,
+                t: 0,
+                dur: 0.55,
+              });
+              corePulse = 1;
+              dum(false);
+            } else {
+              // Small local chamber flash only
+              let nearest: Chamber | null = null;
+              let nd = Infinity;
+              for (const ch of chambers.values()) {
+                if (ch.grow < 1) continue;
+                const [px, py] = axialToPixel(ch.q, ch.r, cx, cy);
+                const d = Math.hypot(px - w.x, py - w.y);
+                if (d < nd) {
+                  nd = d;
+                  nearest = ch;
+                }
+              }
+              if (nearest) {
+                nearest.amber = Math.min(1, nearest.amber + 0.18);
+                nearest.pulse = 0.7;
               }
             }
-            pulses.push({
-              x0: w.x,
-              y0: w.y,
-              x1: hx0,
-              y1: hy0,
-              t: 0,
-              dur: 0.55,
-            });
-            corePulse = 1;
-            dum(false);
           }
         }
         const u = w.t;
         w.x = f.x + (hx0 - f.x) * u;
         w.y = f.y + (hy0 - f.y) * u;
       }
+    }
+
+    for (const f of flowers) {
+      if (f.hint > 0) f.hint = Math.max(0, f.hint - dt * 1.2);
     }
 
     for (const p of pulses) p.t += dt;
@@ -529,6 +610,28 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
 
     for (const rt of routes) {
       rt.glow = 0.25 + 0.2 * Math.sin(time * 2 + rt.flower);
+    }
+
+    // Golden tree soft attract ~20s before reachable
+    {
+      const tree = flowers.find((f) => f.tree);
+      if (tree && !bigFlight && planted) {
+        const td = Math.hypot(tree.x - hx0, tree.y - hy0);
+        const needReach = Math.max(0, Math.ceil((td - rch - 8) / REACH_PER_CHAMBER));
+        const needMin = Math.max(0, TREE_MIN_CHAMBERS - builtCount());
+        const lead = Math.max(needReach, needMin);
+        const was = treeAttract;
+        treeAttract = lead > 0 && lead <= TREE_ATTRACT_LEAD;
+        if (treeAttract) {
+          treeAttractPulse = 0.45 + 0.35 * Math.sin(time * 2.2);
+          if (!was || time - lastChime > 4.5) {
+            lastChime = time;
+            if (!silent) playChime();
+          }
+        } else {
+          treeAttractPulse = Math.max(0, treeAttractPulse - dt);
+        }
+      }
     }
 
     checkTraffic();
@@ -643,28 +746,53 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
       const x = f.x + sway;
       const y = f.y + Math.cos(time * 0.9 + f.ph) * (f.tree ? 0.6 : 1.4);
       if (f.tree) {
-        const reachOk = builtCount() >= TREE_MIN_CHAMBERS && Math.hypot(f.x - hx0, f.y - hy0) <= reach() + 8;
+        const reachOk =
+          builtCount() >= TREE_MIN_CHAMBERS && Math.hypot(f.x - hx0, f.y - hy0) <= reach() + 8;
+        const attract = treeAttract || treeAttractPulse > 0.05;
+        const pulseR = attract ? treeAttractPulse * 10 : 0;
         ctx.beginPath();
-        ctx.arc(x, y, f.r, 0, Math.PI * 2);
-        ctx.fillStyle = reachOk ? "rgba(170,150,90,0.55)" : "rgba(150,145,130,0.4)";
+        ctx.arc(x, y, f.r + pulseR * 0.35, 0, Math.PI * 2);
+        ctx.fillStyle = reachOk
+          ? "rgba(170,150,90,0.55)"
+          : attract
+            ? `rgba(165,155,110,${0.38 + treeAttractPulse * 0.2})`
+            : "rgba(150,145,130,0.4)";
         ctx.fill();
-        ctx.strokeStyle = reachOk ? "rgba(140,120,60,0.7)" : "rgba(120,115,100,0.45)";
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = reachOk
+          ? "rgba(140,120,60,0.7)"
+          : attract
+            ? `rgba(150,135,80,${0.4 + treeAttractPulse * 0.35})`
+            : "rgba(120,115,100,0.45)";
+        ctx.lineWidth = attract ? 2.2 : 2;
         ctx.stroke();
-        // Inner ring
+        if (attract) {
+          ctx.beginPath();
+          ctx.arc(x, y, f.r + 6 + (1 - treeAttractPulse) * 14, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(180,160,90,${0.2 + treeAttractPulse * 0.35})`;
+          ctx.lineWidth = 1.4;
+          ctx.stroke();
+        }
         ctx.beginPath();
         ctx.arc(x, y, f.r * 0.45, 0, Math.PI * 2);
         ctx.strokeStyle = "rgba(180,160,100,0.35)";
         ctx.stroke();
       } else {
         const br = f.r * (0.7 + f.bloom * 0.45);
+        const hint = f.hint;
         ctx.beginPath();
-        ctx.arc(x, y, br, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(150,145,135,${0.25 + f.bloom * 0.35})`;
+        ctx.arc(x, y, br + hint * 3, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(150,145,135,${0.25 + f.bloom * 0.35 + hint * 0.15})`;
         ctx.fill();
-        ctx.strokeStyle = `rgba(110,105,95,${0.3 + f.bloom * 0.3})`;
-        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = `rgba(110,105,95,${0.3 + f.bloom * 0.3 + hint * 0.35})`;
+        ctx.lineWidth = hint > 0 ? 1.6 : 1.2;
         ctx.stroke();
+        if (hint > 0) {
+          ctx.beginPath();
+          ctx.arc(x, y, br + 4 + (1 - hint) * 10, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(160,150,120,${hint * 0.4})`;
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+        }
         ctx.beginPath();
         ctx.arc(x, y, br * 0.35, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(170,160,140,${0.2 + f.bloom * 0.4})`;
@@ -927,6 +1055,8 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
         outbound: rnd() < 0.5,
         carrying: false,
         phase: rnd() * 6,
+        twitch: 0,
+        hintFlower: -1,
       });
     }
     if (firstWorker === null && workers.length) firstWorker = time;
