@@ -39,10 +39,12 @@ export const DUM_DUR = 0.28;
 export const START5_T = 280;
 /** Encircle stroke: min path length to count as a loop. */
 export const ENC_MIN_LEN = 140;
-/** Close the loop when pointer returns within this of stroke start. */
-export const ENC_CLOSE_R = 36;
+/** Close the loop when pointer returns within this of stroke start (~60px). */
+export const ENC_CLOSE_R = 60;
 /** Min samples on encircle path. */
 export const ENC_MIN_PTS = 10;
+/** Connect magnetic snap base (logical px; × DPR, larger on touch). */
+export const CONNECT_SNAP = 40;
 /** Matter (machine / beetle) radii. */
 export const MATTER_R_MACHINE = 28;
 export const MATTER_R_BEETLE = 36;

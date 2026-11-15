@@ -41,8 +41,15 @@ import {
   TRAIL_BUILD_RATE,
   MEADOW2_DIST,
   HINT_DUR,
+  MEADOW_TILE,
+  TRAIL_FINISH_PX,
 } from "./config";
 import { playDum, playBzz, playChime, playSoft } from "./sound";
+import {
+  loadApisAtlas,
+  drawCentered,
+  type ApisAtlas,
+} from "./atlas";
 import type {
   Chamber,
   Flower,
@@ -62,11 +69,22 @@ import {
   drawGhostHand,
   IDLE_GHOST_S,
   MAX_GHOST_PERFORMS,
+  snapRadius,
+  nearestTarget,
+  spawnMiss,
+  tickMiss,
+  drawMissFx,
+  smoothResample,
   type DemoControls,
   type GuidanceInfo,
   type GuideTarget,
   type WowEvent,
+  type PointerMeta,
+  type MissFx,
 } from "../core";
+
+const FLOWER_VARS = ["a", "b", "c"] as const;
+const MEADOW_VARS = ["louka_a", "louka_b", "louka_c"] as const;
 
 const RING: [number, number][] = [
   [1, 0],
@@ -124,13 +142,14 @@ export type WorldOpts = {
 export type ApisWorld = {
   update: (dt: number) => void;
   draw: (ctx: CanvasRenderingContext2D, dpr: number) => void;
-  pointerDown: (x: number, y: number) => void;
-  pointerMove: (x: number, y: number) => void;
-  pointerUp: () => void;
+  pointerDown: (x: number, y: number, meta?: PointerMeta) => void;
+  pointerMove: (x: number, y: number, meta?: PointerMeta) => void;
+  pointerUp: (meta?: PointerMeta) => void;
   metrics: () => SimMetrics;
   snapshot: () => WorldSnapshot;
   stressFill: (workerCount: number) => void;
   bootstrapStart5: () => void;
+  setAtlas: (atlas: ApisAtlas) => void;
   guidance: () => GuidanceInfo;
   pollWows: () => WowEvent[];
   notePointer: () => void;
@@ -178,6 +197,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
           bloom: 0.25 + rnd() * 0.2,
           visits: 0,
           hint: 0,
+          variant: FLOWER_VARS[flowers.length % 3]!,
         });
         placed++;
       }
@@ -198,6 +218,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
         bloom: 0.25 + rnd() * 0.2,
         visits: 0,
         hint: 0,
+          variant: FLOWER_VARS[flowers.length % 3]!,
       });
     }
   }
@@ -279,6 +300,17 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
   let strokePts: TrailPt[] = [];
   let strokeT0 = 0;
   let strokeLen = 0;
+  let atlas: ApisAtlas | null = null;
+  let pointerMeta: PointerMeta = { dpr: 1, touch: false };
+  const missFx: MissFx[] = [];
+  let snapHover: { x: number; y: number; kind: "flower" | "hive" | "meadow" } | null = null;
+  const meadowNames: string[] = [];
+  const meadowCols = Math.ceil(W / MEADOW_TILE) + 1;
+  const meadowRows = Math.ceil(H / MEADOW_TILE) + 1;
+  for (let i = 0; i < meadowCols * meadowRows; i++) {
+    // Deterministic tile mix — do not consume sim RNG (keeps 0–10 medians stable).
+    meadowNames.push(MEADOW_VARS[i % MEADOW_VARS.length]!);
+  }
   let meadow2: { x: number; y: number; r: number } | null = null;
   let secondHive: { x: number; y: number; chambers: number; pulse: number } | null = null;
   let highwayGlow = 0;
@@ -340,6 +372,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
         bloom: 0.35,
         visits: 0,
         hint: 0,
+          variant: FLOWER_VARS[flowers.length % 3]!,
       });
     }
   };
@@ -363,16 +396,46 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
       const nearMeadow = meadow2 && Math.hypot(last.x - meadow2.x, last.y - meadow2.y) < 120;
       if (outward || nearMeadow) return "highway";
     }
-    // After swarm: trail closing the gap → join
+    // After swarm: trail closing the gap → join (auto-finish ~60px of second hive)
     if (swarmTime !== null && joinTime === null && secondHive && len >= TRAIL_MIN_LEN * 0.7) {
-      if (Math.hypot(last.x - secondHive.x, last.y - secondHive.y) < 140) return "join";
+      if (Math.hypot(last.x - secondHive.x, last.y - secondHive.y) < Math.max(140, TRAIL_FINISH_PX * 2)) {
+        return "join";
+      }
       return "join";
     }
-    if (meadow2 && Math.hypot(last.x - meadow2.x, last.y - meadow2.y) < 90) {
+    if (meadow2 && Math.hypot(last.x - meadow2.x, last.y - meadow2.y) < Math.max(90, TRAIL_FINISH_PX * 1.4)) {
       if (secondHive && joinTime === null) return "join";
       if (swarmTime === null) return "highway";
     }
     return "meadow";
+  };
+
+  const resolveConnectSnap = (
+    x: number,
+    y: number,
+  ): { x: number; y: number; kind: "flower" | "hive" | "meadow"; flowerIdx?: number } | null => {
+    const snap = snapRadius(pointerMeta);
+    const [hx0, hy0] = hiveCenter();
+    const flowerPts = flowers.map((f, i) => ({ x: f.x, y: f.y, i }));
+    const fHit = nearestTarget(x, y, flowerPts, snap);
+    if (fHit) {
+      return {
+        x: fHit.target.x,
+        y: fHit.target.y,
+        kind: "flower",
+        flowerIdx: fHit.target.i,
+      };
+    }
+    if (secondHive && Math.hypot(x - secondHive.x, y - secondHive.y) < Math.max(snap, TRAIL_FINISH_PX)) {
+      return { x: secondHive.x, y: secondHive.y, kind: "hive" };
+    }
+    if (meadow2 && Math.hypot(x - meadow2.x, y - meadow2.y) < Math.max(snap, TRAIL_FINISH_PX)) {
+      return { x: meadow2.x, y: meadow2.y, kind: "meadow" };
+    }
+    if (Math.hypot(x - hx0, y - hy0) < snap) {
+      return { x: hx0, y: hy0, kind: "hive" };
+    }
+    return null;
   };
 
   const buildAlongTrail = (trail: PheromoneTrail, targetBuilt: number) => {
@@ -543,6 +606,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
           bloom: 0.7,
           visits: 0,
           hint: 0,
+          variant: FLOWER_VARS[flowers.length % 3]!,
         });
       }
     }
@@ -695,6 +759,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
           bloom: 0.15,
           visits: 0,
           hint: 0,
+          variant: FLOWER_VARS[flowers.length % 3]!,
         });
       }
     }
@@ -757,6 +822,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
 
   const update = (dt: number) => {
     time += dt;
+    tickMiss(missFx, dt);
     idleT += dt;
     if (idleT >= IDLE_GHOST_S) showGhost = true;
     if (shiver > 0) shiver = Math.max(0, shiver - dt);
@@ -1047,15 +1113,40 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
   const draw = (ctx: CanvasRenderingContext2D, dpr: number) => {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
+    const hi = dpr >= 1.5;
+    const art = atlas && atlas.ready ? atlas : null;
 
     // Warm light meadow → dusk tint after hint
     const duskK = Math.min(1, dusk);
-    const g = ctx.createRadialGradient(cx, cy, 40, cx, cy, 520);
-    g.addColorStop(0, duskK > 0.2 ? "#d4cfc0" : "#e8e2d4");
-    g.addColorStop(0.55, duskK > 0.2 ? "#b8b3a4" : "#d5d0c2");
-    g.addColorStop(1, duskK > 0.2 ? "#8a8680" : "#c4c0b4");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
+    if (art) {
+      for (let ty = 0; ty < meadowRows; ty++) {
+        for (let tx = 0; tx < meadowCols; tx++) {
+          const name = meadowNames[ty * meadowCols + tx]!;
+          const fr = art.frame(name, hi);
+          if (!fr) continue;
+          ctx.drawImage(
+            art.image,
+            fr.x,
+            fr.y,
+            fr.w,
+            fr.h,
+            tx * MEADOW_TILE,
+            ty * MEADOW_TILE,
+            MEADOW_TILE,
+            MEADOW_TILE,
+          );
+        }
+      }
+      ctx.fillStyle = duskK > 0.2 ? "rgba(200,195,180,0.35)" : "rgba(232,226,212,0.28)";
+      ctx.fillRect(0, 0, W, H);
+    } else {
+      const g = ctx.createRadialGradient(cx, cy, 40, cx, cy, 520);
+      g.addColorStop(0, duskK > 0.2 ? "#d4cfc0" : "#e8e2d4");
+      g.addColorStop(0.55, duskK > 0.2 ? "#b8b3a4" : "#d5d0c2");
+      g.addColorStop(1, duskK > 0.2 ? "#8a8680" : "#c4c0b4");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    }
     if (duskK > 0.05) {
       ctx.fillStyle = `rgba(40,50,70,${duskK * 0.28})`;
       ctx.fillRect(0, 0, W, H);
@@ -1066,14 +1157,16 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     ctx.scale(camZoom, camZoom);
     ctx.translate(-W / 2, -H / 2);
 
-    // Soft grass specks
-    ctx.fillStyle = "rgba(120,130,100,0.06)";
-    for (let i = 0; i < 120; i++) {
-      const sx = ((i * 97) % W) + Math.sin(time * 0.3 + i) * 2;
-      const sy = ((i * 53) % H) + Math.cos(time * 0.25 + i) * 2;
-      ctx.beginPath();
-      ctx.arc(sx, sy, 1.2, 0, Math.PI * 2);
-      ctx.fill();
+    // Soft grass specks (fallback atmosphere)
+    if (!art) {
+      ctx.fillStyle = "rgba(120,130,100,0.06)";
+      for (let i = 0; i < 120; i++) {
+        const sx = ((i * 97) % W) + Math.sin(time * 0.3 + i) * 2;
+        const sy = ((i * 53) % H) + Math.cos(time * 0.25 + i) * 2;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     // Buildable neighbor glow
@@ -1132,14 +1225,28 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
       for (let i = 1; i < tr.pts.length; i++) ctx.lineTo(tr.pts[i]!.x, tr.pts[i]!.y);
       ctx.stroke();
     }
-    // Live stroke
+    // Live pheromone trail during stroke
     if (dragging && strokePts.length > 1 && bigFlight) {
-      ctx.strokeStyle = "rgba(180,150,70,0.35)";
-      ctx.lineWidth = 2;
+      const live = smoothResample(strokePts, 6, 1);
+      ctx.strokeStyle = "rgba(180,150,70,0.45)";
+      ctx.lineWidth = 2.6;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
       ctx.beginPath();
-      ctx.moveTo(strokePts[0]!.x, strokePts[0]!.y);
-      for (let i = 1; i < strokePts.length; i++) ctx.lineTo(strokePts[i]!.x, strokePts[i]!.y);
+      ctx.moveTo(live[0]!.x, live[0]!.y);
+      for (let i = 1; i < live.length; i++) ctx.lineTo(live[i]!.x, live[i]!.y);
       ctx.stroke();
+    }
+
+    // Magnetic connect target light
+    if (snapHover) {
+      ctx.strokeStyle = "rgba(200,180,90,0.75)";
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(snapHover.x, snapHover.y, 16 + Math.sin(time * 8) * 2.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(200,180,90,0.14)";
+      ctx.fill();
     }
 
     // Second golden meadow
@@ -1180,7 +1287,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
       ctx.stroke();
     }
 
-    // Flowers (grey / warm circles)
+    // Flowers / golden tree
     for (const f of flowers) {
       const sway = Math.sin(time * 1.1 + f.ph) * (f.tree ? 1.2 : 2.2);
       const x = f.x + sway;
@@ -1189,22 +1296,33 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
         const reachOk =
           builtCount() >= TREE_MIN_CHAMBERS && Math.hypot(f.x - hx0, f.y - hy0) <= reach() + 8;
         const attract = treeAttract || treeAttractPulse > 0.05;
-        const pulseR = attract ? treeAttractPulse * 10 : 0;
-        ctx.beginPath();
-        ctx.arc(x, y, f.r + pulseR * 0.35, 0, Math.PI * 2);
-        ctx.fillStyle = reachOk
-          ? "rgba(170,150,90,0.55)"
-          : attract
-            ? `rgba(165,155,110,${0.38 + treeAttractPulse * 0.2})`
-            : "rgba(150,145,130,0.4)";
-        ctx.fill();
-        ctx.strokeStyle = reachOk
-          ? "rgba(140,120,60,0.7)"
-          : attract
-            ? `rgba(150,135,80,${0.4 + treeAttractPulse * 0.35})`
-            : "rgba(120,115,100,0.45)";
-        ctx.lineWidth = attract ? 2.2 : 2;
-        ctx.stroke();
+        if (art) {
+          const fr = art.frame("zlaty_strom", hi);
+          if (fr) {
+            const sc = (f.r * 2.2) / fr.logicW;
+            drawCentered(ctx, art, fr, x, y, {
+              scale: sc * (1 + (attract ? treeAttractPulse * 0.08 : 0)),
+              alpha: reachOk ? 0.95 : attract ? 0.75 + treeAttractPulse * 0.15 : 0.7,
+            });
+          }
+        } else {
+          const pulseR = attract ? treeAttractPulse * 10 : 0;
+          ctx.beginPath();
+          ctx.arc(x, y, f.r + pulseR * 0.35, 0, Math.PI * 2);
+          ctx.fillStyle = reachOk
+            ? "rgba(170,150,90,0.55)"
+            : attract
+              ? `rgba(165,155,110,${0.38 + treeAttractPulse * 0.2})`
+              : "rgba(150,145,130,0.4)";
+          ctx.fill();
+          ctx.strokeStyle = reachOk
+            ? "rgba(140,120,60,0.7)"
+            : attract
+              ? `rgba(150,135,80,${0.4 + treeAttractPulse * 0.35})`
+              : "rgba(120,115,100,0.45)";
+          ctx.lineWidth = attract ? 2.2 : 2;
+          ctx.stroke();
+        }
         if (attract) {
           ctx.beginPath();
           ctx.arc(x, y, f.r + 6 + (1 - treeAttractPulse) * 14, 0, Math.PI * 2);
@@ -1212,21 +1330,33 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
           ctx.lineWidth = 1.4;
           ctx.stroke();
         }
-        ctx.beginPath();
-        ctx.arc(x, y, f.r * 0.45, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(180,160,100,0.35)";
-        ctx.stroke();
       } else {
         const close = duskK > 0.3 ? Math.max(0.35, 1 - duskK * 0.55) : 1;
         const br = f.r * (0.7 + f.bloom * 0.45) * close;
         const hint = f.hint;
-        ctx.beginPath();
-        ctx.arc(x, y, br + hint * 3, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(150,145,135,${(0.25 + f.bloom * 0.35 + hint * 0.15) * close})`;
-        ctx.fill();
-        ctx.strokeStyle = `rgba(110,105,95,${0.3 + f.bloom * 0.3 + hint * 0.35})`;
-        ctx.lineWidth = hint > 0 ? 1.6 : 1.2;
-        ctx.stroke();
+        if (art) {
+          const fr = art.frame(`kvetina_${f.variant ?? "a"}`, hi);
+          if (fr) {
+            const sc = (br * 2.4) / fr.logicW;
+            drawCentered(ctx, art, fr, x, y, {
+              scale: sc,
+              alpha: (0.75 + f.bloom * 0.2 + hint * 0.1) * close,
+              rot: Math.sin(time * 0.6 + f.ph) * 0.08,
+            });
+          }
+        } else {
+          ctx.beginPath();
+          ctx.arc(x, y, br + hint * 3, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(150,145,135,${(0.25 + f.bloom * 0.35 + hint * 0.15) * close})`;
+          ctx.fill();
+          ctx.strokeStyle = `rgba(110,105,95,${0.3 + f.bloom * 0.3 + hint * 0.35})`;
+          ctx.lineWidth = hint > 0 ? 1.6 : 1.2;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(x, y, br * 0.35, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(170,160,140,${0.2 + f.bloom * 0.4})`;
+          ctx.fill();
+        }
         if (hint > 0) {
           ctx.beginPath();
           ctx.arc(x, y, br + 4 + (1 - hint) * 10, 0, Math.PI * 2);
@@ -1234,10 +1364,6 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
           ctx.lineWidth = 1.2;
           ctx.stroke();
         }
-        ctx.beginPath();
-        ctx.arc(x, y, br * 0.35, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(170,160,140,${0.2 + f.bloom * 0.4})`;
-        ctx.fill();
       }
     }
 
@@ -1253,15 +1379,28 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
       const gsz = HEX * (0.4 + 0.6 * Math.min(1, ch.grow));
       const amber = ch.amber;
       const grey = 1 - amber;
-      const fill = `rgba(${Math.floor(150 + amber * 40)},${Math.floor(145 + amber * 30)},${Math.floor(130 - amber * 40)},${0.35 + ch.grow * 0.4})`;
-      const stroke = amber > 0.2
-        ? `rgba(180,150,80,${0.35 + amber * 0.4})`
-        : `rgba(120,115,105,${0.35 + grey * 0.25})`;
       const isRust = rustChamber === hexKey(ch.q, ch.r);
-      const fillR = isRust
-        ? `rgba(${Math.floor(150 + amber * 20)},${Math.floor(110 + amber * 20)},${Math.floor(90)},${0.4 + ch.grow * 0.35})`
-        : fill;
-      drawHex(ctx, px, py, gsz, fillR, stroke, 1.4);
+      if (art) {
+        const name =
+          ch.grow < 1 ? "komora_stavba" : amber > 0.35 ? "komora_plna" : "komora_prazdna";
+        const fr = art.frame(name, hi);
+        if (fr) {
+          const sc = (HEX * 2.05 * Math.min(1, 0.45 + 0.55 * ch.grow)) / fr.logicW;
+          drawCentered(ctx, art, fr, px, py, {
+            scale: sc,
+            alpha: isRust ? 0.75 : 0.92,
+          });
+        }
+      } else {
+        const fill = `rgba(${Math.floor(150 + amber * 40)},${Math.floor(145 + amber * 30)},${Math.floor(130 - amber * 40)},${0.35 + ch.grow * 0.4})`;
+        const stroke = amber > 0.2
+          ? `rgba(180,150,80,${0.35 + amber * 0.4})`
+          : `rgba(120,115,105,${0.35 + grey * 0.25})`;
+        const fillR = isRust
+          ? `rgba(${Math.floor(150 + amber * 20)},${Math.floor(110 + amber * 20)},${Math.floor(90)},${0.4 + ch.grow * 0.35})`
+          : fill;
+        drawHex(ctx, px, py, gsz, fillR, stroke, 1.4);
+      }
       if (ch.pulse > 0) {
         ctx.strokeStyle = `rgba(200,170,90,${ch.pulse * 0.5})`;
         ctx.lineWidth = 2;
@@ -1271,16 +1410,28 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
       }
     }
 
-    // Core (queen)
+    // Core (queen / jadro)
     if (core) {
-      const pr = 10 + corePulse * 6;
-      ctx.beginPath();
-      ctx.arc(core.x, core.y, pr, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(160,150,120,${0.55 + corePulse * 0.3})`;
-      ctx.fill();
-      ctx.strokeStyle = `rgba(100,95,80,${0.5 + corePulse * 0.3})`;
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
+      if (art) {
+        const fr = art.frame("jadro", hi);
+        if (fr) {
+          const sc = (22 + corePulse * 6) / fr.logicW;
+          drawCentered(ctx, art, fr, core.x, core.y, {
+            scale: sc,
+            alpha: 0.9 + corePulse * 0.08,
+            rot: Math.sin(time * 0.4) * 0.05,
+          });
+        }
+      } else {
+        const pr = 10 + corePulse * 6;
+        ctx.beginPath();
+        ctx.arc(core.x, core.y, pr, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(160,150,120,${0.55 + corePulse * 0.3})`;
+        ctx.fill();
+        ctx.strokeStyle = `rgba(100,95,80,${0.5 + corePulse * 0.3})`;
+        ctx.lineWidth = 1.8;
+        ctx.stroke();
+      }
     }
     ctx.restore();
 
@@ -1298,8 +1449,25 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
       ctx.fill();
     }
 
-    // Workers
+    // Workers (delnice 32)
     for (const w of workers) {
+      if (art) {
+        const fr = art.frame("delnice", hi);
+        if (fr) {
+          const ang = Math.atan2(
+            (w.outbound ? 1 : -1) *
+              (flowers[w.flower] ? flowers[w.flower]!.y - w.y : 0),
+            (w.outbound ? 1 : -1) *
+              (flowers[w.flower] ? flowers[w.flower]!.x - w.x : 1),
+          );
+          drawCentered(ctx, art, fr, w.x, w.y, {
+            scale: w.carrying ? 0.95 : 0.82,
+            alpha: 0.9,
+            rot: ang,
+          });
+          continue;
+        }
+      }
       ctx.beginPath();
       ctx.arc(w.x, w.y, w.carrying ? 2.8 : 2.2, 0, Math.PI * 2);
       ctx.fillStyle = w.carrying ? "rgba(170,140,70,0.85)" : "rgba(80,75,65,0.75)";
@@ -1350,6 +1518,8 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
         }
       }
     }
+
+    drawMissFx(ctx, missFx);
 
     // Diegetic guidance (always)
     {
@@ -1545,7 +1715,8 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     return wowQueue.splice(0, wowQueue.length);
   };
 
-  const pointerDown = (x: number, y: number) => {
+  const pointerDown = (x: number, y: number, meta?: PointerMeta) => {
+    if (meta) pointerMeta = meta;
     dragging = true;
     dsx = x;
     dsy = y;
@@ -1554,6 +1725,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     strokePts = [{ x, y }];
     strokeT0 = time;
     strokeLen = 0;
+    snapHover = null;
 
     const [q, r] = pixelToAxial(x, y, cx, cy);
     const [px, py] = axialToPixel(q, r, cx, cy);
@@ -1577,33 +1749,90 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     }
   };
 
-  const pointerMove = (x: number, y: number) => {
-    hx = x;
-    hy = y;
+  const pointerMove = (x: number, y: number, meta?: PointerMeta) => {
+    if (meta) pointerMeta = meta;
+    let px = x;
+    let py = y;
+    const snap = resolveConnectSnap(x, y);
+    snapHover = snap ? { x: snap.x, y: snap.y, kind: snap.kind } : null;
+    if (dragging && snap) {
+      const k = 0.55;
+      px = x + (snap.x - x) * k;
+      py = y + (snap.y - y) * k;
+    }
+    hx = px;
+    hy = py;
     if (!dragging) return;
     const last = strokePts[strokePts.length - 1];
-    if (!last || Math.hypot(x - last.x, y - last.y) > 5) {
-      if (last) strokeLen += Math.hypot(x - (last?.x ?? x), y - (last?.y ?? y));
-      strokePts.push({ x, y });
+    if (!last || Math.hypot(px - last.x, py - last.y) > 5) {
+      if (last) strokeLen += Math.hypot(px - last.x, py - last.y);
+      strokePts.push({ x: px, y: py });
+      // Pheromone trail auto-finish when end near hive/meadow join target (not flowers —
+      // those are route snaps and would truncate mid-trail).
+      if (
+        bigFlight &&
+        strokePts.length >= TRAIL_MIN_PTS &&
+        pathLen(strokePts) >= TRAIL_MIN_LEN * 0.85 &&
+        snap &&
+        (snap.kind === "hive" || snap.kind === "meadow") &&
+        Math.hypot(px - snap.x, py - snap.y) < TRAIL_FINISH_PX
+      ) {
+        const dur = Math.max(0.05, time - strokeT0);
+        const avgSpd = pathLen(strokePts) / dur;
+        if (avgSpd <= TRAIL_MAX_SPEED * 1.15) {
+          if (activateTrail(strokePts)) {
+            strokePts = [];
+            dragging = false;
+            snapHover = null;
+          }
+        }
+      }
     }
   };
 
-  const pointerUp = () => {
-    if (!dragging) return;
+  const pointerUp = (meta?: PointerMeta) => {
+    if (meta) pointerMeta = meta;
+    if (!dragging) {
+      snapHover = null;
+      return;
+    }
     dragging = false;
     const dist = Math.hypot(hx - dsx, hy - dsy);
     if (dist < 18) {
       strokePts = [];
+      snapHover = null;
       return;
     }
 
+    const snap = resolveConnectSnap(hx, hy);
+    // Snap end to magnetic target before evaluating
+    let pts = strokePts;
+    if (snap && Math.hypot(hx - snap.x, hy - snap.y) < Math.max(snapRadius(pointerMeta), TRAIL_FINISH_PX)) {
+      pts = [...strokePts, { x: snap.x, y: snap.y }];
+      hx = snap.x;
+      hy = snap.y;
+    }
+
     // After big flight: slow long drag = pheromone trail
-    if (bigFlight && strokePts.length >= TRAIL_MIN_PTS) {
+    if (bigFlight && pts.length >= TRAIL_MIN_PTS) {
       const dur = Math.max(0.05, time - strokeT0);
-      const avgSpd = pathLen(strokePts) / dur;
-      if (avgSpd <= TRAIL_MAX_SPEED && pathLen(strokePts) >= TRAIL_MIN_LEN) {
-        if (activateTrail(strokePts)) {
+      const avgSpd = pathLen(pts) / dur;
+      if (avgSpd <= TRAIL_MAX_SPEED && pathLen(pts) >= TRAIL_MIN_LEN) {
+        if (activateTrail(pts)) {
           strokePts = [];
+          snapHover = null;
+          return;
+        }
+      }
+      // Near-miss trail: end within finish radius of known target
+      if (
+        snap &&
+        pathLen(pts) >= TRAIL_MIN_LEN * 0.75 &&
+        Math.hypot(hx - snap.x, hy - snap.y) <= TRAIL_FINISH_PX
+      ) {
+        if (activateTrail(pts)) {
+          strokePts = [];
+          snapHover = null;
           return;
         }
       }
@@ -1622,18 +1851,30 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
         }
       }
       if (!nearCh) {
+        if (dist > 40) missFx.push(spawnMiss(hx, hy));
         strokePts = [];
+        snapHover = null;
         return;
       }
     }
     if (!planted) {
       strokePts = [];
+      snapHover = null;
       return;
     }
 
-    const fi = nearestFlowerIdx(hx, hy, 55);
-    if (fi >= 0) assignRoute(fi);
+    const snapDist = Math.max(55, snapRadius(pointerMeta));
+    const fi =
+      snap?.kind === "flower" && snap.flowerIdx !== undefined
+        ? snap.flowerIdx
+        : nearestFlowerIdx(hx, hy, snapDist);
+    if (fi >= 0) {
+      if (!assignRoute(fi)) missFx.push(spawnMiss(hx, hy));
+    } else if (dist > 40) {
+      missFx.push(spawnMiss(hx, hy));
+    }
     strokePts = [];
+    snapHover = null;
   };
 
   const metrics = (): SimMetrics => ({
@@ -1818,6 +2059,10 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     traffic = true;
   };
 
+  const setAtlas = (a: ApisAtlas) => {
+    atlas = a;
+  };
+
   if (opts.startAt !== undefined && opts.startAt >= START5_T - 5) {
     bootstrapStart5();
   }
@@ -1832,6 +2077,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     snapshot,
     stressFill,
     bootstrapStart5,
+    setAtlas,
     guidance,
     pollWows,
     notePointer,
@@ -1848,5 +2094,6 @@ export function startApis(
   if (app) (app as HTMLElement).style.background = "#c8c4b8";
   cv.style.background = "#d5d0c2";
   const world = createApisWorld({ startAt });
+  void loadApisAtlas().then((a) => world.setAtlas(a));
   return mountCanvas(cv, world, W, H, { demo });
 }

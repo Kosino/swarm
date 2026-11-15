@@ -63,9 +63,22 @@ import {
   drawGhostHand,
   IDLE_GHOST_S,
   MAX_GHOST_PERFORMS,
+  pathLength,
+  pointInPoly,
+  smoothResample,
+  encircleRecognized,
+  snapRadius,
+  nearestTarget,
+  spawnMiss,
+  tickMiss,
+  drawMissFx,
+  TRAIL_FINISH_PX,
   type DemoControls,
   type GuidanceInfo,
   type WowEvent,
+  type PointerMeta,
+  type MissFx,
+  type Pt,
 } from "../core";
 
 const SOIL_TILE = 64;
@@ -75,28 +88,6 @@ function wrap(a: number): number {
   while (a > Math.PI) a -= 2 * Math.PI;
   while (a < -Math.PI) a += 2 * Math.PI;
   return a;
-}
-
-function pointInPoly(px: number, py: number, pts: { x: number; y: number }[]): boolean {
-  let inside = false;
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    const xi = pts[i]!.x;
-    const yi = pts[i]!.y;
-    const xj = pts[j]!.x;
-    const yj = pts[j]!.y;
-    const hit =
-      yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi + 1e-9) + xi;
-    if (hit) inside = !inside;
-  }
-  return inside;
-}
-
-function pathLength(pts: { x: number; y: number }[]): number {
-  let len = 0;
-  for (let i = 1; i < pts.length; i++) {
-    len += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
-  }
-  return len;
 }
 
 function distPointSeg(
@@ -138,9 +129,9 @@ export type WorldSnapshot = {
 export type MyceliumWorld = {
   update: (dt: number) => void;
   draw: (ctx: CanvasRenderingContext2D, dpr: number) => void;
-  pointerDown: (x: number, y: number) => void;
-  pointerMove: (x: number, y: number) => void;
-  pointerUp: () => void;
+  pointerDown: (x: number, y: number, meta?: PointerMeta) => void;
+  pointerMove: (x: number, y: number, meta?: PointerMeta) => void;
+  pointerUp: (meta?: PointerMeta) => void;
   metrics: () => SimMetrics;
   snapshot: () => WorldSnapshot;
   /** Stress-fill network for FPS measurement. */
@@ -225,8 +216,12 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
   const germs: Germ[] = [];
   const grains: { x: number; y: number; vx: number; vy: number; life: number }[] = [];
   const spores: { x: number; y: number; vx: number; vy: number; life: number }[] = [];
-  let stroke: { x: number; y: number }[] = [];
+  let stroke: Pt[] = [];
   let strokeActive = false;
+  let strokeCatch: Matter | Germ | null = null;
+  let pointerMeta: PointerMeta = { dpr: 1, touch: false };
+  const missFx: MissFx[] = [];
+  let snapHover: { x: number; y: number; kind: "germ" | "tip" | "patch" } | null = null;
   let mattersSpawned = false;
   let decayTime: number | null = null;
   let fruitTime: number | null = null;
@@ -484,61 +479,151 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
     };
   };
 
+  const shapeOfMatter = (m: Matter) => ({
+    x: m.x,
+    y: m.y,
+    rx: m.r * (m.kind === "beetle" ? 1.05 : 0.85),
+    ry: m.r * (m.kind === "beetle" ? 0.7 : 0.55),
+  });
+
+  const updateStrokeCatch = () => {
+    strokeCatch = null;
+    if (!strokeActive || stroke.length < 4) return;
+    const poly = smoothResample(stroke);
+    const candidates: (Matter | Germ)[] = [
+      ...matters.filter((m) => !m.encircled),
+      ...germs.filter((g) => !g.linked),
+    ];
+    let best: Matter | Germ | null = null;
+    let score = 0;
+    for (const c of candidates) {
+      const r = "r" in c ? c.r : 14;
+      const rec = encircleRecognized(poly, { x: c.x, y: c.y, rx: r, ry: r * 0.75 }, {
+        minLen: ENC_MIN_LEN * 0.55,
+        minPts: 6,
+        closePx: ENC_CLOSE_R,
+      });
+      const s = rec.ok ? 1 : pointInPoly(c.x, c.y, poly) ? 0.7 : 0;
+      if (s > score) {
+        score = s;
+        best = c;
+      }
+    }
+    if (score >= 0.55) strokeCatch = best;
+  };
+
   const tryEncircle = (): boolean => {
     if (!bigAnchored || stroke.length < ENC_MIN_PTS) return false;
-    const len = pathLength(stroke);
-    if (len < ENC_MIN_LEN) return false;
-    const first = stroke[0]!;
-    const last = stroke[stroke.length - 1]!;
-    if (Math.hypot(last.x - first.x, last.y - first.y) > ENC_CLOSE_R) return false;
+    const poly = smoothResample(stroke);
+    if (pathLength(poly) < ENC_MIN_LEN) return false;
+    stroke = poly;
 
     const intact = matters.filter((m) => m.kind !== "fruit" && !m.encircled);
     const fruits = matters.filter((m) => m.kind === "fruit" && !m.encircled);
+    const last = poly[poly.length - 1]!;
 
     // Spore: encircle covering ≥2 fruits (or 1 fruit + loop large)
     if (sporeTime === null && fruits.length >= 1 && decayCount >= 2) {
-      const covered = fruits.filter((f) => pointInPoly(f.x, f.y, stroke));
-      if (covered.length >= Math.min(2, fruits.length) || (fruits.length >= 2 && covered.length >= 1 && len > ENC_MIN_LEN * 1.4)) {
+      const covered = fruits.filter((f) => {
+        const rec = encircleRecognized(poly, { x: f.x, y: f.y, rx: f.r, ry: f.r * 0.7 }, {
+          minLen: ENC_MIN_LEN * 0.7,
+          minPts: ENC_MIN_PTS,
+          closePx: ENC_CLOSE_R,
+        });
+        return rec.ok;
+      });
+      if (
+        covered.length >= Math.min(2, fruits.length) ||
+        (fruits.length >= 2 && covered.length >= 1 && pathLength(poly) > ENC_MIN_LEN * 1.4)
+      ) {
         triggerSpore();
         return true;
       }
     }
 
-    // Fruit wow: second matter encircle after first decay
-    if (fruitTime === null && decayCount >= 1) {
-      for (const m of intact) {
-        if (pointInPoly(m.x, m.y, stroke)) {
-          triggerFruit(m);
+    // Fruit wow / first decay via center-in-poly OR ≥50% outline
+    const tryMatter = (list: Matter[], onHit: (m: Matter) => void): boolean => {
+      for (const m of list) {
+        const rec = encircleRecognized(poly, shapeOfMatter(m), {
+          minLen: ENC_MIN_LEN,
+          minPts: ENC_MIN_PTS,
+          closePx: ENC_CLOSE_R,
+        });
+        if (rec.ok) {
+          onHit(m);
           return true;
         }
       }
+      return false;
+    };
+
+    if (fruitTime === null && decayCount >= 1) {
+      if (tryMatter(intact, (m) => triggerFruit(m))) return true;
     }
 
-    // First decay
     if (decayTime === null || intact.length) {
-      for (const m of intact) {
-        if (pointInPoly(m.x, m.y, stroke)) {
+      if (
+        tryMatter(intact, (m) => {
           if (decayTime === null) triggerDecay(m);
           else triggerFruit(m);
-          return true;
-        }
+        })
+      ) {
+        return true;
       }
     }
 
-    // Join: encircle or stroke near unlinked germs after spore
+    // Join: encircle or magnetic connect near unlinked germs after spore
     if (sporeTime !== null && joinTime === null) {
       const unlinked = germs.filter((g) => !g.linked);
-      if (unlinked.length && unlinked.every((g) => pointInPoly(g.x, g.y, stroke) || stroke.some((p) => Math.hypot(p.x - g.x, p.y - g.y) < 50))) {
+      const snap = snapRadius(pointerMeta);
+      if (
+        unlinked.length &&
+        unlinked.every((g) => {
+          const rec = encircleRecognized(poly, { x: g.x, y: g.y, rx: 16, ry: 14 }, {
+            minLen: ENC_MIN_LEN * 0.7,
+            minPts: 8,
+            closePx: ENC_CLOSE_R,
+          });
+          return (
+            rec.ok ||
+            pointInPoly(g.x, g.y, poly) ||
+            poly.some((p) => Math.hypot(p.x - g.x, p.y - g.y) < 50)
+          );
+        })
+      ) {
         triggerJoin();
         return true;
       }
-      // Also allow loop near germs with network drag end
-      if (unlinked.some((g) => Math.hypot(last.x - g.x, last.y - g.y) < 60) && len > ENC_MIN_LEN * 0.8) {
+      if (
+        unlinked.some((g) => Math.hypot(last.x - g.x, last.y - g.y) < Math.max(TRAIL_FINISH_PX, snap)) &&
+        pathLength(poly) > ENC_MIN_LEN * 0.8
+      ) {
         triggerJoin();
         return true;
       }
     }
     return false;
+  };
+
+  const resolveConnectSnap = (
+    x: number,
+    y: number,
+  ): { x: number; y: number; kind: "germ" | "tip" | "patch"; germ?: Germ } | null => {
+    const snap = snapRadius(pointerMeta);
+    const unlinked = germs.filter((g) => !g.linked).map((g) => ({ x: g.x, y: g.y, germ: g }));
+    const tipPts = tips.map((t) => ({ x: t.x, y: t.y }));
+    const patchPts = patches.filter((p) => !p.on).map((p) => ({ x: p.x, y: p.y }));
+
+    const gHit = nearestTarget(x, y, unlinked, snap);
+    if (gHit) return { x: gHit.target.x, y: gHit.target.y, kind: "germ", germ: gHit.target.germ };
+
+    const tHit = nearestTarget(x, y, tipPts, snap);
+    if (tHit) return { x: tHit.target.x, y: tHit.target.y, kind: "tip" };
+
+    const pHit = nearestTarget(x, y, patchPts, snap);
+    if (pHit) return { x: pHit.target.x, y: pHit.target.y, kind: "patch" };
+
+    return null;
   };
 
   const spawnBigPatch = () => {
@@ -764,7 +849,8 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
     return wowQueue.splice(0, wowQueue.length);
   };
 
-  const pointerDown = (x: number, y: number) => {
+  const pointerDown = (x: number, y: number, meta?: PointerMeta) => {
+    if (meta) pointerMeta = meta;
     if (!seed) {
       plantSeed(x, y);
       bumpPerform("plant");
@@ -777,20 +863,34 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
     hx = x;
     hy = y;
     guideW = 0;
-    for (const t of tips) t.g = Math.hypot(t.x - x, t.y - y) < GUIDE_R;
+    strokeCatch = null;
+    snapHover = null;
+    const snap = snapRadius(pointerMeta);
+    for (const t of tips) t.g = Math.hypot(t.x - x, t.y - y) < Math.max(GUIDE_R, snap * 3);
     if (bigAnchored) {
       stroke = [{ x, y }];
       strokeActive = true;
     }
   };
 
-  const pointerMove = (x: number, y: number) => {
-    hx = x;
-    hy = y;
+  const pointerMove = (x: number, y: number, meta?: PointerMeta) => {
+    if (meta) pointerMeta = meta;
+    let px = x;
+    let py = y;
+    const snap = resolveConnectSnap(x, y);
+    snapHover = snap ? { x: snap.x, y: snap.y, kind: snap.kind } : null;
+    // Magnetic pull toward valid connect target while dragging
+    if (dragging && snap && Math.hypot(x - snap.x, y - snap.y) < snapRadius(pointerMeta)) {
+      const k = 0.55;
+      px = x + (snap.x - x) * k;
+      py = y + (snap.y - y) * k;
+    }
+    hx = px;
+    hy = py;
     hovering = true;
     if (!dragging || !seed) return;
-    const dx = x - dsx;
-    const dy = y - dsy;
+    const dx = px - dsx;
+    const dy = py - dsy;
     const len = Math.hypot(dx, dy);
     if (len > 12) {
       guideA = Math.atan2(dy, dx);
@@ -804,41 +904,59 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
     }
     if (strokeActive) {
       const last = stroke[stroke.length - 1];
-      if (!last || Math.hypot(x - last.x, y - last.y) > 6) {
-        stroke.push({ x, y });
+      if (!last || Math.hypot(px - last.x, py - last.y) > 6) {
+        stroke.push({ x: px, y: py });
+        updateStrokeCatch();
         // Auto-close when near start after enough length
         if (
           stroke.length >= ENC_MIN_PTS &&
           pathLength(stroke) >= ENC_MIN_LEN &&
-          Math.hypot(x - stroke[0]!.x, y - stroke[0]!.y) < ENC_CLOSE_R
+          Math.hypot(px - stroke[0]!.x, py - stroke[0]!.y) < ENC_CLOSE_R
         ) {
-          tryEncircle();
+          const ok = tryEncircle();
+          if (!ok) missFx.push(spawnMiss(px, py));
           stroke = [];
           strokeActive = false;
+          strokeCatch = null;
         }
       }
     }
   };
 
-  const pointerUp = () => {
+  const pointerUp = (meta?: PointerMeta) => {
+    if (meta) pointerMeta = meta;
+    let did = false;
     if (strokeActive && stroke.length >= ENC_MIN_PTS) {
-      // Soft-close: if near enough, snap
+      // Soft-close: if near enough, snap end to start
       const first = stroke[0]!;
       const last = stroke[stroke.length - 1]!;
-      if (Math.hypot(last.x - first.x, last.y - first.y) < ENC_CLOSE_R * 1.6) {
+      if (Math.hypot(last.x - first.x, last.y - first.y) < ENC_CLOSE_R) {
         stroke.push({ x: first.x, y: first.y });
       }
-      tryEncircle();
+      did = tryEncircle();
+      if (!did && pathLength(stroke) >= ENC_MIN_LEN * 0.6) {
+        missFx.push(spawnMiss(hx, hy));
+      }
     }
-    // Join by dragging network toward germs (after spore)
-    if (bigAnchored && sporeTime !== null && joinTime === null && seed) {
+    // Join by magnetic connect toward germs (after spore)
+    if (!did && bigAnchored && sporeTime !== null && joinTime === null && seed) {
+      const snap = resolveConnectSnap(hx, hy);
+      const finish = Math.max(TRAIL_FINISH_PX, snapRadius(pointerMeta));
       const unlinked = germs.filter((g) => !g.linked);
-      if (unlinked.some((g) => Math.hypot(hx - g.x, hy - g.y) < 70)) {
+      if (
+        (snap?.kind === "germ" && snap.germ) ||
+        unlinked.some((g) => Math.hypot(hx - g.x, hy - g.y) < finish)
+      ) {
         triggerJoin();
+        did = true;
+      } else if (dragging && Math.hypot(hx - dsx, hy - dsy) > 40 && unlinked.length) {
+        missFx.push(spawnMiss(hx, hy));
       }
     }
     stroke = [];
     strokeActive = false;
+    strokeCatch = null;
+    snapHover = null;
     dragging = false;
     holdT = 0;
     densify = false;
@@ -1006,6 +1124,7 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
   const update = (dt: number) => {
     time += dt;
     idleT += dt;
+    tickMiss(missFx, dt);
     if (idleT >= IDLE_GHOST_S) showGhost = true;
     if (fusionCd > 0) fusionCd = Math.max(0, fusionCd - dt);
     if (!dragging) {
@@ -1323,15 +1442,41 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
       ctx.fill();
     }
 
-    // Encircle stroke preview
+    // Encircle live trail + catch highlight
     if (strokeActive && stroke.length > 1) {
-      ctx.strokeStyle = "rgba(200,210,190,0.35)";
+      const live = smoothResample(stroke, 6, 1);
+      ctx.strokeStyle = "rgba(200,210,190,0.45)";
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(live[0]!.x, live[0]!.y);
+      for (let i = 1; i < live.length; i++) ctx.lineTo(live[i]!.x, live[i]!.y);
+      ctx.stroke();
+      if (strokeCatch) {
+        const r = "r" in strokeCatch ? strokeCatch.r * 1.35 : 18;
+        ctx.strokeStyle = "rgba(210,230,180,0.65)";
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(strokeCatch.x, strokeCatch.y, r + 4 + Math.sin(time * 6) * 2, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(190,220,160,0.12)";
+        ctx.fill();
+      }
+    }
+
+    // Magnetic connect target light
+    if (snapHover) {
+      ctx.strokeStyle = "rgba(220,230,200,0.7)";
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(stroke[0]!.x, stroke[0]!.y);
-      for (let i = 1; i < stroke.length; i++) ctx.lineTo(stroke[i]!.x, stroke[i]!.y);
+      ctx.arc(snapHover.x, snapHover.y, 14 + Math.sin(time * 8) * 2, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.fillStyle = "rgba(220,230,200,0.15)";
+      ctx.fill();
     }
+
+    drawMissFx(ctx, missFx);
 
     // Foreign network hint (visual only)
     if (foreignNet > 0 && foreignSeed) {
