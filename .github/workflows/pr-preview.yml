@@ -1,0 +1,56 @@
+name: Deploy PR previews
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
+  # Agent pushes with app tokens often skip pull_request synchronize; allow explicit redeploy.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to preview
+        required: true
+        default: "5"
+      action:
+        description: deploy or remove
+        required: true
+        default: deploy
+
+concurrency: preview-${{ github.event.pull_request.number || github.event.inputs.pr_number || github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  deploy-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        if: github.event.action != 'closed' && (github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'deploy')
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install and build
+        if: github.event.action != 'closed' && (github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'deploy')
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: ./dist/
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          wait-for-pages-deployment: false
+          pr-number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+          action: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action || 'auto' }}
