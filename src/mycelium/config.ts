@@ -18,8 +18,8 @@ export const HOLD_R = 150;
 export const HOLD_SPEED_MUL = 2.4;
 export const HOLD_BRANCH_MUL = 3.5;
 export const HOLD_STEER = 1.8;
-export const WORKER_T = 220;
-export const WORKER_ANCHORS = 3;
+/** Fertility: after first fusion once the network reaches this many segments. */
+export const WORKER_MIN_SEGS = 3200;
 export const MAX_WORKERS = 150;
 export const WORKER_SPAWN_RATE = 0.55;
 export const WORKER_SPEED = 55;

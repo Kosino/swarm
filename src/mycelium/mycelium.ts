@@ -16,8 +16,7 @@ import {
   HOLD_SPEED_MUL,
   HOLD_BRANCH_MUL,
   HOLD_STEER,
-  WORKER_T,
-  WORKER_ANCHORS,
+  WORKER_MIN_SEGS,
   MAX_WORKERS,
   WORKER_SPAWN_RATE,
   WORKER_SPEED,
@@ -341,10 +340,7 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
     return false;
   };
 
-  const fertility = () => {
-    const anchors = patches.filter((p) => p.on && !p.big).length;
-    return time >= WORKER_T || anchors >= WORKER_ANCHORS;
-  };
+  const fertility = () => firstFusion !== null && segs.length >= WORKER_MIN_SEGS;
 
   const targetWorkers = () => {
     const density = segs.reduce((a, s) => a + 1 + s.th, 0);
