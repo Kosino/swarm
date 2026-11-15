@@ -12,14 +12,14 @@ function audio(): AudioContext | null {
   return ctx;
 }
 
-/** Single muffled synthetic “dum” — deeper for the big anchor. */
-export function playDum(big = false): void {
+/** Single muffled synthetic “dum” — deeper for big anchor; softer for mid-wow. */
+export function playDum(big = false, soft = false): void {
   const ac = audio();
   if (!ac) return;
   if (ac.state === "suspended") void ac.resume();
 
   const t0 = ac.currentTime;
-  const freq = big ? DUM_FREQ_BIG : DUM_FREQ;
+  const freq = big ? DUM_FREQ_BIG : soft ? DUM_FREQ * 0.92 : DUM_FREQ;
   const osc = ac.createOscillator();
   const gain = ac.createGain();
   const filter = ac.createBiquadFilter();
@@ -29,11 +29,12 @@ export function playDum(big = false): void {
   osc.frequency.exponentialRampToValueAtTime(freq * 0.45, t0 + DUM_DUR);
 
   filter.type = "lowpass";
-  filter.frequency.setValueAtTime(420, t0);
+  filter.frequency.setValueAtTime(soft ? 360 : 420, t0);
   filter.Q.setValueAtTime(0.7, t0);
 
+  const peak = big ? 0.22 : soft ? 0.09 : 0.14;
   gain.gain.setValueAtTime(0.0001, t0);
-  gain.gain.exponentialRampToValueAtTime(big ? 0.22 : 0.14, t0 + 0.018);
+  gain.gain.exponentialRampToValueAtTime(peak, t0 + 0.018);
   gain.gain.exponentialRampToValueAtTime(0.0001, t0 + DUM_DUR);
 
   osc.connect(filter);

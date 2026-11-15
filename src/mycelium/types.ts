@@ -5,6 +5,8 @@ export type Seg = {
   y2: number;
   p: number;
   th: number;
+  /** 0 = hyfa_seg_a, 1 = hyfa_seg_b */
+  v: 0 | 1;
   fuseGlow?: number;
 };
 
@@ -45,6 +47,8 @@ export type SimMetrics = {
   tips: number;
   anchors: number;
   workers: number;
+  firstAnchor: number | null;
+  midstep: number | null;
   firstFusion: number | null;
   firstWorkers: number | null;
   bigAnchored: boolean;
