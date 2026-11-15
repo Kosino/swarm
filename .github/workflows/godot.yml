@@ -57,9 +57,11 @@ jobs:
           "$GODOT" --headless --path godot --script res://mycelium/headless.gd | tee godot-sim.json
           python3 - <<'PY'
           import json,sys
-          # last JSON object in output
+          # first top-level JSON object in Godot stdout (pretty-printed may nest braces)
           text=open("godot-sim.json").read()
-          start=text.rfind("{")
+          start=text.find("{")
+          if start < 0:
+              sys.exit("no JSON in godot-sim.json")
           data=json.loads(text[start:])
           print("medians", data.get("medians"))
           sys.exit(0 if data.get("ok") else 1)
