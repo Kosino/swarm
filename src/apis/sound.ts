@@ -111,3 +111,48 @@ export function playChime(): void {
   osc.start(t0);
   osc.stop(t0 + CHIME_DUR + 0.02);
 }
+
+/** Soft midgame one-shots — chamber open, copper, dual buzz, chord, cold wind. */
+export function playSoft(
+  kind: "open" | "copper" | "dual" | "chord" | "wind",
+): void {
+  const ac = audio();
+  if (!ac) return;
+  if (ac.state === "suspended") void ac.resume();
+  const t0 = ac.currentTime;
+
+  const tone = (freq: number, dur: number, peak: number, type: OscillatorType, lp: number) => {
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    const filter = ac.createBiquadFilter();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(40, freq * 0.7), t0 + dur);
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(lp, t0);
+    filter.Q.setValueAtTime(0.55, t0);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(peak, t0 + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ac.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  };
+
+  if (kind === "open") {
+    tone(180, 0.32, 0.06, "sine", 600);
+  } else if (kind === "copper") {
+    tone(96, 0.45, 0.09, "triangle", 420);
+  } else if (kind === "dual") {
+    tone(160, 0.4, 0.05, "triangle", 500);
+    tone(210, 0.4, 0.04, "sine", 700);
+  } else if (kind === "chord") {
+    tone(110, 0.55, 0.07, "sine", 400);
+    tone(165, 0.55, 0.05, "sine", 500);
+    tone(220, 0.55, 0.04, "sine", 600);
+  } else {
+    tone(55, 0.6, 0.055, "sawtooth", 280);
+  }
+}

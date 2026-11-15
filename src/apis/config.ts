@@ -65,3 +65,27 @@ export const FLOWER_MAX = 12;
 export const FLOWER_R = 11;
 export const TREE_R = 36;
 export const TREE_EDGE = 56;
+
+/** Build #5 — pheromone trail midgame (minutes 5–10). */
+/** Jump target for ?start=5 (~4:40 after big flight). */
+export const START5_T = 280;
+/** Pheromone trail: slow = avg speed below this (px/s). */
+export const TRAIL_MAX_SPEED = 95;
+/** Min trail length (px). */
+export const TRAIL_MIN_LEN = 160;
+/** Min samples on trail path. */
+export const TRAIL_MIN_PTS = 12;
+/** Auto-build spacing along trail (hex steps approx). */
+export const TRAIL_BUILD_SPACING = 38;
+/** Chambers built per second along active trail. */
+export const TRAIL_BUILD_RATE = 1.35;
+/** Target wow times (seconds). */
+export const WOW_TRAIL = 345;
+export const WOW_FLOOR2 = 420;
+export const WOW_SWARM = 495;
+export const WOW_JOIN = 560;
+export const WOW_HINT = 600;
+/** Second meadow distance from hive. */
+export const MEADOW2_DIST = 380;
+/** Dusk / hint duration. */
+export const HINT_DUR = 4.5;

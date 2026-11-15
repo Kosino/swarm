@@ -58,6 +58,16 @@ export type SwarmDot = {
   spd: number;
 };
 
+export type TrailPt = { x: number; y: number };
+
+export type PheromoneTrail = {
+  pts: TrailPt[];
+  glow: number;
+  /** How far along the trail auto-build has progressed (0..1). */
+  built: number;
+  kind: "meadow" | "arc" | "highway" | "join";
+};
+
 export type SimMetrics = {
   time: number;
   chambers: number;
@@ -72,6 +82,12 @@ export type SimMetrics = {
   bigFlightTime: number | null;
   ringClosed: boolean;
   traffic: boolean;
+  /** Build #5 wow times. */
+  trailTime: number | null;
+  floor2Time: number | null;
+  swarmTime: number | null;
+  joinTime: number | null;
+  hintTime: number | null;
 };
 
 export type WorldSnapshot = {
@@ -84,4 +100,6 @@ export type WorldSnapshot = {
   ringClosed: boolean;
   traffic: boolean;
   shivering: number;
+  meadow2: { x: number; y: number } | null;
+  secondHive: { x: number; y: number } | null;
 };

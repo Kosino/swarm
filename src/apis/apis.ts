@@ -33,8 +33,16 @@ import {
   FLOWER_R,
   TREE_R,
   TREE_EDGE,
+  START5_T,
+  TRAIL_MAX_SPEED,
+  TRAIL_MIN_LEN,
+  TRAIL_MIN_PTS,
+  TRAIL_BUILD_SPACING,
+  TRAIL_BUILD_RATE,
+  MEADOW2_DIST,
+  HINT_DUR,
 } from "./config";
-import { playDum, playBzz, playChime } from "./sound";
+import { playDum, playBzz, playChime, playSoft } from "./sound";
 import type {
   Chamber,
   Flower,
@@ -45,6 +53,8 @@ import type {
   SimMetrics,
   WorldSnapshot,
   HexKey,
+  PheromoneTrail,
+  TrailPt,
 } from "./types";
 import { mountCanvas } from "../core";
 
@@ -97,6 +107,8 @@ function neighbors(q: number, r: number): [number, number][] {
 export type WorldOpts = {
   silent?: boolean;
   rng?: () => number;
+  /** Fast-forward / bootstrap to ~4:40 midgame (?start=5). */
+  startAt?: number;
 };
 
 export type ApisWorld = {
@@ -108,7 +120,16 @@ export type ApisWorld = {
   metrics: () => SimMetrics;
   snapshot: () => WorldSnapshot;
   stressFill: (workerCount: number) => void;
+  bootstrapStart5: () => void;
 };
+
+function pathLen(pts: TrailPt[]): number {
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) {
+    len += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
+  }
+  return len;
+}
 
 export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
   const rnd = opts.rng ?? Math.random;
@@ -240,8 +261,279 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
   let hy = cy;
   let pulseHexGlow = 1;
 
+  /** Build #5 midgame. */
+  const trails: PheromoneTrail[] = [];
+  let strokePts: TrailPt[] = [];
+  let strokeT0 = 0;
+  let strokeLen = 0;
+  let meadow2: { x: number; y: number; r: number } | null = null;
+  let secondHive: { x: number; y: number; chambers: number; pulse: number } | null = null;
+  let highwayGlow = 0;
+  let trailTime: number | null = null;
+  let floor2Time: number | null = null;
+  let swarmTime: number | null = null;
+  let joinTime: number | null = null;
+  let hintTime: number | null = null;
+  let dusk = 0;
+  let rustChamber: HexKey | null = null;
+  let floor2 = false;
+  let meadowBloom = 0;
+  let hivePulseSync = 0;
+
   const dum = (deep: boolean) => {
     if (!silent) playDum(deep);
+  };
+
+  const soft = (kind: "open" | "copper" | "dual" | "chord" | "wind") => {
+    if (!silent) playSoft(kind);
+  };
+
+  const spawnMeadow2 = () => {
+    if (meadow2 || !core) return;
+    const tree = flowers.find((f) => f.tree);
+    const ang = tree
+      ? Math.atan2(tree.y - cy, tree.x - cx) + Math.PI * 0.55
+      : rnd() * Math.PI * 2;
+    let x = cx + Math.cos(ang) * MEADOW2_DIST;
+    let y = cy + Math.sin(ang) * MEADOW2_DIST * 0.82;
+    x = Math.max(80, Math.min(W - 80, x));
+    y = Math.max(70, Math.min(H - 70, y));
+    meadow2 = { x, y, r: 48 };
+    // Extra distant flowers in second meadow
+    for (let i = 0; i < 5; i++) {
+      const a = rnd() * Math.PI * 2;
+      const d = 20 + rnd() * 40;
+      flowers.push({
+        x: x + Math.cos(a) * d,
+        y: y + Math.sin(a) * d * 0.8,
+        r: FLOWER_R * (0.9 + rnd() * 0.3),
+        ph: rnd() * 6,
+        bloom: 0.35,
+        visits: 0,
+        hint: 0,
+      });
+    }
+  };
+
+  const classifyTrail = (pts: TrailPt[]): PheromoneTrail["kind"] => {
+    if (!core) return "meadow";
+    const last = pts[pts.length - 1]!;
+    const first = pts[0]!;
+    const len = pathLen(pts);
+    // Arc around hive: angular sweep, stays near hive
+    const a0 = Math.atan2(first.y - cy, first.x - cx);
+    const a1 = Math.atan2(last.y - cy, last.x - cx);
+    let da = Math.abs(a1 - a0);
+    if (da > Math.PI) da = Math.PI * 2 - da;
+    const meanDist =
+      pts.reduce((s, p) => s + Math.hypot(p.x - cx, p.y - cy), 0) / pts.length;
+    if (trailTime !== null && floor2Time === null && da > 1.1 && meanDist < 150) return "arc";
+    // After floor2: long outward trail → highway / second hive
+    if (floor2Time !== null && swarmTime === null && len >= TRAIL_MIN_LEN) {
+      const outward = Math.hypot(last.x - cx, last.y - cy) > 200;
+      const nearMeadow = meadow2 && Math.hypot(last.x - meadow2.x, last.y - meadow2.y) < 120;
+      if (outward || nearMeadow) return "highway";
+    }
+    // After swarm: trail closing the gap → join
+    if (swarmTime !== null && joinTime === null && secondHive && len >= TRAIL_MIN_LEN * 0.7) {
+      if (Math.hypot(last.x - secondHive.x, last.y - secondHive.y) < 140) return "join";
+      return "join";
+    }
+    if (meadow2 && Math.hypot(last.x - meadow2.x, last.y - meadow2.y) < 90) {
+      if (secondHive && joinTime === null) return "join";
+      if (swarmTime === null) return "highway";
+    }
+    return "meadow";
+  };
+
+  const buildAlongTrail = (trail: PheromoneTrail, targetBuilt: number) => {
+    if (!core) return;
+    while (trail.built < targetBuilt - 0.001) {
+      const u = Math.min(0.999, trail.built + 0.02);
+      // Position along polyline
+      const total = pathLen(trail.pts);
+      let remain = u * total;
+      let x = trail.pts[0]!.x;
+      let y = trail.pts[0]!.y;
+      for (let i = 1; i < trail.pts.length; i++) {
+        const d = Math.hypot(trail.pts[i]!.x - trail.pts[i - 1]!.x, trail.pts[i]!.y - trail.pts[i - 1]!.y);
+        if (remain <= d) {
+          const t = d > 0 ? remain / d : 0;
+          x = trail.pts[i - 1]!.x + (trail.pts[i]!.x - trail.pts[i - 1]!.x) * t;
+          y = trail.pts[i - 1]!.y + (trail.pts[i]!.y - trail.pts[i - 1]!.y) * t;
+          break;
+        }
+        remain -= d;
+        x = trail.pts[i]!.x;
+        y = trail.pts[i]!.y;
+      }
+      const [q, r] = pixelToAxial(x, y, cx, cy);
+      if (isAdjacentToHive(q, r) || (trail.kind !== "meadow" && !chambers.has(hexKey(q, r)))) {
+        // Allow build if adjacent OR near existing for trail growth
+        if (!chambers.has(hexKey(q, r))) {
+          const adj = isAdjacentToHive(q, r);
+          if (adj && wax >= WAX_MIN * 0.5) {
+            chambers.set(hexKey(q, r), {
+              q,
+              r,
+              grow: 0,
+              growDur: BUILD_DUR * 0.75,
+              amber: 0.15,
+              hatchT: 0,
+              hatched: false,
+              pulse: 0.4,
+            });
+            wax = Math.max(0.15, wax - WAX_COST * 0.55);
+          } else if (!adj) {
+            // Find nearest adjacent cell toward this point
+            let best: [number, number] | null = null;
+            let bd = Infinity;
+            for (const ch of chambers.values()) {
+              if (ch.grow < 1) continue;
+              for (const [nq, nr] of neighbors(ch.q, ch.r)) {
+                if (nq === 0 && nr === 0) continue;
+                if (chambers.has(hexKey(nq, nr))) continue;
+                const [px, py] = axialToPixel(nq, nr, cx, cy);
+                const d = Math.hypot(px - x, py - y);
+                if (d < bd && d < TRAIL_BUILD_SPACING * 1.6) {
+                  bd = d;
+                  best = [nq, nr];
+                }
+              }
+            }
+            if (best && wax >= WAX_MIN * 0.4) {
+              chambers.set(hexKey(best[0], best[1]), {
+                q: best[0],
+                r: best[1],
+                grow: 0,
+                growDur: BUILD_DUR * 0.7,
+                amber: 0.2,
+                hatchT: 0,
+                hatched: false,
+                pulse: 0.5,
+              });
+              wax = Math.max(0.15, wax - WAX_COST * 0.5);
+            }
+          }
+        }
+      }
+      trail.built = Math.min(1, trail.built + TRAIL_BUILD_SPACING / Math.max(total, 1));
+      if (trail.built >= targetBuilt) break;
+      if (trail.built >= 1) break;
+    }
+  };
+
+  const activateTrail = (pts: TrailPt[]) => {
+    if (pts.length < TRAIL_MIN_PTS || pathLen(pts) < TRAIL_MIN_LEN) return false;
+    const kind = classifyTrail(pts);
+    const trail: PheromoneTrail = { pts: pts.map((p) => ({ ...p })), glow: 1, built: 0, kind };
+    trails.push(trail);
+
+    if (kind === "meadow" && trailTime === null) {
+      trailTime = time;
+      soft("open");
+      wax = Math.min(WAX_MAX, wax + 0.35);
+    } else if (kind === "arc" && floor2Time === null) {
+      floor2Time = time;
+      floor2 = true;
+      hiveScale = Math.max(hiveScale, 1.32);
+      corePulse = 1;
+      soft("copper");
+      dum(true);
+      // Wrap second-floor ring (outer neighbors of RING)
+      for (const [q, r] of RING) {
+        for (const [nq, nr] of neighbors(q, r)) {
+          if (nq === 0 && nr === 0) continue;
+          if (RING.some(([rq, rr]) => rq === nq && rr === nr)) continue;
+          const k = hexKey(nq, nr);
+          if (chambers.has(k)) continue;
+          // Only a subset around the arc
+          const [px, py] = axialToPixel(nq, nr, cx, cy);
+          if (pts.some((p) => Math.hypot(p.x - px, p.y - py) < 55)) {
+            chambers.set(k, {
+              q: nq,
+              r: nr,
+              grow: 0,
+              growDur: BUILD_DUR * 0.85,
+              amber: 0.25,
+              hatchT: 0,
+              hatched: false,
+              pulse: 0.6,
+            });
+          }
+        }
+      }
+    } else if (kind === "highway" && swarmTime === null) {
+      swarmTime = time;
+      soft("dual");
+      const last = pts[pts.length - 1]!;
+      secondHive = {
+        x: meadow2 ? meadow2.x : last.x,
+        y: meadow2 ? meadow2.y : last.y,
+        chambers: 3,
+        pulse: 1,
+      };
+      highwayGlow = 1;
+      // Send some workers toward second hive
+      let sent = 0;
+      for (const w of workers) {
+        if (sent >= Math.floor(workers.length * 0.35)) break;
+        if (w.flower >= 0 && rnd() < 0.5) continue;
+        w.flower = -2; // special: fly to second hive
+        w.t = 0;
+        w.outbound = true;
+        w.carrying = false;
+        sent++;
+      }
+    } else if (kind === "join" && joinTime === null && secondHive) {
+      joinTime = time;
+      soft("chord");
+      highwayGlow = 1.4;
+      hivePulseSync = 1;
+      meadowBloom = 1;
+      corePulse = 1;
+      secondHive.pulse = 1;
+      for (const f of flowers) {
+        if (!f.tree) f.bloom = Math.min(1, f.bloom + 0.55);
+      }
+      // Extra bloom flowers between hives
+      for (let i = 0; i < 8; i++) {
+        const t = 0.2 + rnd() * 0.6;
+        const x = cx + (secondHive.x - cx) * t + (rnd() - 0.5) * 60;
+        const y = cy + (secondHive.y - cy) * t + (rnd() - 0.5) * 50;
+        if (x < 30 || x > W - 30 || y < 30 || y > H - 30) continue;
+        flowers.push({
+          x,
+          y,
+          r: FLOWER_R * (0.8 + rnd() * 0.4),
+          ph: rnd() * 6,
+          bloom: 0.7,
+          visits: 0,
+          hint: 0,
+        });
+      }
+    }
+    return true;
+  };
+
+  const triggerDuskHint = () => {
+    if (hintTime !== null) return;
+    hintTime = time;
+    soft("wind");
+    dusk = 1;
+    // Rust on a far chamber
+    let far: Chamber | null = null;
+    let bd = -1;
+    for (const ch of chambers.values()) {
+      if (ch.grow < 1) continue;
+      const [px, py] = axialToPixel(ch.q, ch.r, cx, cy);
+      const d = Math.hypot(px - cx, py - cy);
+      if (d > bd) {
+        bd = d;
+        far = ch;
+      }
+    }
+    if (far) rustChamber = hexKey(far.q, far.r);
   };
 
   const builtCount = () => {
@@ -507,6 +799,28 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     for (const w of workers) {
       w.phase += dt;
       if (w.twitch > 0) w.twitch = Math.max(0, w.twitch - dt);
+      // Swarm to second hive
+      if (w.flower === -2 && secondHive) {
+        const tx = secondHive.x;
+        const ty = secondHive.y;
+        const dist = Math.hypot(tx - hx0, ty - hy0);
+        w.t += (WORKER_SPEED * dt) / Math.max(40, dist);
+        if (w.outbound) {
+          if (w.t >= 1) {
+            w.t = 0;
+            w.outbound = false;
+          }
+          const u = Math.min(1, w.t);
+          w.x = hx0 + (tx - hx0) * u;
+          w.y = hy0 + (ty - hy0) * u;
+        } else {
+          // Orbit second hive
+          const ang = w.phase * 1.1;
+          w.x = tx + Math.cos(ang) * (14 + (w.phase % 4));
+          w.y = ty + Math.sin(ang) * (12 + (w.phase % 3));
+        }
+        continue;
+      }
       if (w.flower < 0) {
         // Idle orbit near hive edge; occasional lean toward hint flower
         const ang = w.phase * 0.8;
@@ -638,9 +952,33 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     if (traffic && Math.floor(time * 2) !== Math.floor((time - dt) * 2)) spawnBloom();
 
     // Soft hive scale settle after ring
-    if (ringClosed && hiveScale > 1.08) {
+    if (ringClosed && hiveScale > 1.08 && !floor2) {
       hiveScale += (1.1 - hiveScale) * Math.min(1, dt * 0.4);
     }
+    if (floor2 && hiveScale < 1.28) {
+      hiveScale += (1.3 - hiveScale) * Math.min(1, dt * 0.35);
+    }
+
+    // Midgame: meadow2 after big flight; trail auto-build; dusk hint
+    if (bigFlight) spawnMeadow2();
+    for (const tr of trails) {
+      tr.glow = 0.55 + 0.35 * Math.sin(time * 2.5);
+      if (tr.built < 1 && (tr.kind === "meadow" || tr.kind === "highway" || tr.kind === "join")) {
+        const step = TRAIL_BUILD_RATE * dt * (TRAIL_BUILD_SPACING / Math.max(pathLen(tr.pts), 1));
+        buildAlongTrail(tr, Math.min(1, tr.built + step * 8));
+      }
+    }
+    if (highwayGlow > 0.3) highwayGlow = 0.55 + 0.45 * Math.sin(time * 2.2);
+    if (hivePulseSync > 0) {
+      hivePulseSync = Math.max(0.35, 0.55 + 0.45 * Math.sin(time * 2));
+      corePulse = Math.max(corePulse, hivePulseSync * 0.5);
+      if (secondHive) secondHive.pulse = hivePulseSync;
+    }
+    if (meadowBloom > 0) meadowBloom = Math.max(0.4, meadowBloom - dt * 0.02);
+    if (joinTime !== null && hintTime === null && time >= 595) {
+      triggerDuskHint();
+    }
+    if (dusk > 0) dusk = Math.min(1, dusk + dt / HINT_DUR);
   };
 
   const drawHex = (
@@ -672,13 +1010,18 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
 
-    // Warm light meadow
+    // Warm light meadow → dusk tint after hint
+    const duskK = Math.min(1, dusk);
     const g = ctx.createRadialGradient(cx, cy, 40, cx, cy, 520);
-    g.addColorStop(0, "#e8e2d4");
-    g.addColorStop(0.55, "#d5d0c2");
-    g.addColorStop(1, "#c4c0b4");
+    g.addColorStop(0, duskK > 0.2 ? "#d4cfc0" : "#e8e2d4");
+    g.addColorStop(0.55, duskK > 0.2 ? "#b8b3a4" : "#d5d0c2");
+    g.addColorStop(1, duskK > 0.2 ? "#8a8680" : "#c4c0b4");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
+    if (duskK > 0.05) {
+      ctx.fillStyle = `rgba(40,50,70,${duskK * 0.28})`;
+      ctx.fillRect(0, 0, W, H);
+    }
 
     ctx.save();
     ctx.translate(W / 2, H / 2);
@@ -740,6 +1083,65 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
       ctx.stroke();
     }
 
+    // Pheromone trails
+    for (const tr of trails) {
+      if (tr.pts.length < 2) continue;
+      const gold = tr.kind === "join" || tr.kind === "highway" ? highwayGlow : tr.glow;
+      ctx.strokeStyle = `rgba(190,160,70,${0.25 + gold * 0.45})`;
+      ctx.lineWidth = tr.kind === "highway" || tr.kind === "join" ? 3.2 : 2.4;
+      ctx.beginPath();
+      ctx.moveTo(tr.pts[0]!.x, tr.pts[0]!.y);
+      for (let i = 1; i < tr.pts.length; i++) ctx.lineTo(tr.pts[i]!.x, tr.pts[i]!.y);
+      ctx.stroke();
+    }
+    // Live stroke
+    if (dragging && strokePts.length > 1 && bigFlight) {
+      ctx.strokeStyle = "rgba(180,150,70,0.35)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(strokePts[0]!.x, strokePts[0]!.y);
+      for (let i = 1; i < strokePts.length; i++) ctx.lineTo(strokePts[i]!.x, strokePts[i]!.y);
+      ctx.stroke();
+    }
+
+    // Second golden meadow
+    if (meadow2) {
+      const mg = ctx.createRadialGradient(meadow2.x, meadow2.y, 4, meadow2.x, meadow2.y, meadow2.r);
+      mg.addColorStop(0, `rgba(180,160,90,${0.22 + meadowBloom * 0.25})`);
+      mg.addColorStop(1, "rgba(180,160,90,0)");
+      ctx.fillStyle = mg;
+      ctx.beginPath();
+      ctx.arc(meadow2.x, meadow2.y, meadow2.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Second hive (grey)
+    if (secondHive) {
+      const sh = secondHive;
+      for (let i = 0; i < sh.chambers; i++) {
+        const a = (i / sh.chambers) * Math.PI * 2 + time * 0.1;
+        drawHex(
+          ctx,
+          sh.x + Math.cos(a) * 16,
+          sh.y + Math.sin(a) * 14,
+          HEX * 0.7,
+          `rgba(150,145,130,${0.4 + sh.pulse * 0.2})`,
+          `rgba(110,105,95,0.45)`,
+        );
+      }
+      ctx.beginPath();
+      ctx.arc(sh.x, sh.y, 8 + sh.pulse * 4, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(160,150,120,${0.5 + sh.pulse * 0.3})`;
+      ctx.fill();
+      // Highway
+      ctx.strokeStyle = `rgba(190,160,70,${0.2 + highwayGlow * 0.4})`;
+      ctx.lineWidth = 2.8;
+      ctx.beginPath();
+      ctx.moveTo(hx0, hy0);
+      ctx.lineTo(sh.x, sh.y);
+      ctx.stroke();
+    }
+
     // Flowers (grey / warm circles)
     for (const f of flowers) {
       const sway = Math.sin(time * 1.1 + f.ph) * (f.tree ? 1.2 : 2.2);
@@ -777,11 +1179,12 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
         ctx.strokeStyle = "rgba(180,160,100,0.35)";
         ctx.stroke();
       } else {
-        const br = f.r * (0.7 + f.bloom * 0.45);
+        const close = duskK > 0.3 ? Math.max(0.35, 1 - duskK * 0.55) : 1;
+        const br = f.r * (0.7 + f.bloom * 0.45) * close;
         const hint = f.hint;
         ctx.beginPath();
         ctx.arc(x, y, br + hint * 3, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(150,145,135,${0.25 + f.bloom * 0.35 + hint * 0.15})`;
+        ctx.fillStyle = `rgba(150,145,135,${(0.25 + f.bloom * 0.35 + hint * 0.15) * close})`;
         ctx.fill();
         ctx.strokeStyle = `rgba(110,105,95,${0.3 + f.bloom * 0.3 + hint * 0.35})`;
         ctx.lineWidth = hint > 0 ? 1.6 : 1.2;
@@ -816,7 +1219,11 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
       const stroke = amber > 0.2
         ? `rgba(180,150,80,${0.35 + amber * 0.4})`
         : `rgba(120,115,105,${0.35 + grey * 0.25})`;
-      drawHex(ctx, px, py, gsz, fill, stroke, 1.4);
+      const isRust = rustChamber === hexKey(ch.q, ch.r);
+      const fillR = isRust
+        ? `rgba(${Math.floor(150 + amber * 20)},${Math.floor(110 + amber * 20)},${Math.floor(90)},${0.4 + ch.grow * 0.35})`
+        : fill;
+      drawHex(ctx, px, py, gsz, fillR, stroke, 1.4);
       if (ch.pulse > 0) {
         ctx.strokeStyle = `rgba(200,170,90,${ch.pulse * 0.5})`;
         ctx.lineWidth = 2;
@@ -915,6 +1322,9 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     dsy = y;
     hx = x;
     hy = y;
+    strokePts = [{ x, y }];
+    strokeT0 = time;
+    strokeLen = 0;
 
     const [q, r] = pixelToAxial(x, y, cx, cy);
     const [px, py] = axialToPixel(q, r, cx, cy);
@@ -922,11 +1332,13 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
       if (!planted && q === 0 && r === 0) {
         tryBuild(0, 0);
         dragging = false;
+        strokePts = [];
         return;
       }
       if (planted && isAdjacentToHive(q, r) && !chambers.has(hexKey(q, r))) {
         tryBuild(q, r);
         dragging = false;
+        strokePts = [];
         return;
       }
     }
@@ -935,18 +1347,39 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
   const pointerMove = (x: number, y: number) => {
     hx = x;
     hy = y;
+    if (!dragging) return;
+    const last = strokePts[strokePts.length - 1];
+    if (!last || Math.hypot(x - last.x, y - last.y) > 5) {
+      if (last) strokeLen += Math.hypot(x - (last?.x ?? x), y - (last?.y ?? y));
+      strokePts.push({ x, y });
+    }
   };
 
   const pointerUp = () => {
     if (!dragging) return;
     dragging = false;
     const dist = Math.hypot(hx - dsx, hy - dsy);
-    if (dist < 18) return;
-    // Drag from hive area toward flower
+    if (dist < 18) {
+      strokePts = [];
+      return;
+    }
+
+    // After big flight: slow long drag = pheromone trail
+    if (bigFlight && strokePts.length >= TRAIL_MIN_PTS) {
+      const dur = Math.max(0.05, time - strokeT0);
+      const avgSpd = pathLen(strokePts) / dur;
+      if (avgSpd <= TRAIL_MAX_SPEED && pathLen(strokePts) >= TRAIL_MIN_LEN) {
+        if (activateTrail(strokePts)) {
+          strokePts = [];
+          return;
+        }
+      }
+    }
+
+    // Drag from hive area toward flower (early-game route)
     const [hx0, hy0] = hiveCenter();
     const nearHive = Math.hypot(dsx - hx0, dsy - hy0) < 70 || workers.some((w) => Math.hypot(dsx - w.x, dsy - w.y) < 28);
     if (!nearHive && planted) {
-      // still allow drag starting near any chamber
       let nearCh = false;
       for (const ch of chambers.values()) {
         const [px, py] = axialToPixel(ch.q, ch.r, cx, cy);
@@ -955,12 +1388,19 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
           break;
         }
       }
-      if (!nearCh) return;
+      if (!nearCh) {
+        strokePts = [];
+        return;
+      }
     }
-    if (!planted) return;
+    if (!planted) {
+      strokePts = [];
+      return;
+    }
 
     const fi = nearestFlowerIdx(hx, hy, 55);
     if (fi >= 0) assignRoute(fi);
+    strokePts = [];
   };
 
   const metrics = (): SimMetrics => ({
@@ -977,6 +1417,11 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     bigFlightTime,
     ringClosed,
     traffic,
+    trailTime,
+    floor2Time,
+    swarmTime,
+    joinTime,
+    hintTime,
   });
 
   const snapshot = (): WorldSnapshot => ({
@@ -999,7 +1444,84 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     ringClosed,
     traffic,
     shivering: shiver,
+    meadow2: meadow2 ? { x: meadow2.x, y: meadow2.y } : null,
+    secondHive: secondHive ? { x: secondHive.x, y: secondHive.y } : null,
   });
+
+  const bootstrapStart5 = () => {
+    tryBuild(0, 0);
+    time = START5_T;
+    // Complete ring + expansion
+    for (const [q, r] of RING) {
+      const k = hexKey(q, r);
+      chambers.set(k, {
+        q,
+        r,
+        grow: 1,
+        growDur: BUILD_DUR,
+        amber: 0.4,
+        hatchT: HATCH_DELAY,
+        hatched: true,
+        pulse: 0,
+      });
+    }
+    ringClosed = true;
+    ringTime = 135;
+    hiveScale = 1.12;
+    for (const [q, r] of RING) {
+      for (const [nq, nr] of neighbors(q, r)) {
+        if (nq === 0 && nr === 0) continue;
+        if (RING.some(([rq, rr]) => rq === nq && rr === nr)) continue;
+        const k = hexKey(nq, nr);
+        if (chambers.has(k)) continue;
+        chambers.set(k, {
+          q: nq,
+          r: nr,
+          grow: 1,
+          growDur: BUILD_DUR,
+          amber: 0.25,
+          hatchT: HATCH_DELAY,
+          hatched: true,
+          pulse: 0,
+        });
+        if (builtCount() >= TREE_MIN_CHAMBERS + 4) break;
+      }
+      if (builtCount() >= TREE_MIN_CHAMBERS + 4) break;
+    }
+    firstWorker = 35;
+    firstNectar = 80;
+    traffic = true;
+    trafficTime = 200;
+    const flowerIdx = flowers.findIndex((f) => !f.tree);
+    if (flowerIdx >= 0) {
+      routes.push({ flower: flowerIdx, glow: 0.4 });
+      assignRoute(flowerIdx);
+    }
+    while (workers.length < 40) {
+      workers.push({
+        x: cx + (rnd() - 0.5) * 40,
+        y: cy + (rnd() - 0.5) * 40,
+        flower: flowerIdx >= 0 ? flowerIdx : -1,
+        t: rnd(),
+        outbound: rnd() < 0.5,
+        carrying: false,
+        phase: rnd() * 6,
+        twitch: 0,
+        hintFlower: -1,
+      });
+    }
+    // Big flight done
+    const tree = flowers.find((f) => f.tree);
+    if (tree) {
+      bigFlight = true;
+      bigFlightTime = START5_T - 8;
+      bigFlightT = 8;
+      camZoom = CAM_ZOOM_OUT;
+      camZoomTarget = CAM_ZOOM_OUT;
+      wax = Math.min(WAX_MAX, wax + 0.5);
+    }
+    spawnMeadow2();
+  };
 
   const stressFill = (workerCount: number) => {
     if (!planted) tryBuild(0, 0);
@@ -1063,14 +1585,28 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     traffic = true;
   };
 
-  return { update, draw, pointerDown, pointerMove, pointerUp, metrics, snapshot, stressFill };
+  if (opts.startAt !== undefined && opts.startAt >= START5_T - 5) {
+    bootstrapStart5();
+  }
+
+  return {
+    update,
+    draw,
+    pointerDown,
+    pointerMove,
+    pointerUp,
+    metrics,
+    snapshot,
+    stressFill,
+    bootstrapStart5,
+  };
 }
 
-export function startApis(cv: HTMLCanvasElement): () => void {
+export function startApis(cv: HTMLCanvasElement, startAt?: number): () => void {
   document.body.style.background = "#c8c4b8";
   const app = document.getElementById("app");
   if (app) (app as HTMLElement).style.background = "#c8c4b8";
   cv.style.background = "#d5d0c2";
-  const world = createApisWorld();
+  const world = createApisWorld({ startAt });
   return mountCanvas(cv, world, W, H);
 }

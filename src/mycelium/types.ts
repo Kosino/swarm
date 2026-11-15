@@ -41,6 +41,27 @@ export type Worker = {
   speed: number;
 };
 
+/** Midgame matter: machine / beetle / fruiting body (grey shapes). */
+export type MatterKind = "machine" | "beetle" | "fruit";
+
+export type Matter = {
+  x: number;
+  y: number;
+  r: number;
+  kind: MatterKind;
+  /** 0 intact → 1 fully decayed / consumed. */
+  decay: number;
+  encircled: boolean;
+  ph: number;
+};
+
+export type Germ = {
+  x: number;
+  y: number;
+  lit: number;
+  linked: boolean;
+};
+
 export type SimMetrics = {
   time: number;
   segs: number;
@@ -53,4 +74,10 @@ export type SimMetrics = {
   firstWorkers: number | null;
   bigAnchored: boolean;
   bigAnchorTime: number | null;
+  /** Build #5 wow times. */
+  decayTime: number | null;
+  fruitTime: number | null;
+  sporeTime: number | null;
+  joinTime: number | null;
+  hintTime: number | null;
 };

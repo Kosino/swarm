@@ -1,8 +1,8 @@
 /**
- * Headless acceptance for Apis Build #3.
+ * Headless acceptance for Apis Build #5 — 0–5 + midgame wows.
  * Run: npm run sim:apis
  */
-import { W, H, HEX, TREE_MIN_CHAMBERS } from "./config";
+import { W, H, HEX, TREE_MIN_CHAMBERS, TRAIL_MIN_LEN } from "./config";
 import { createApisWorld } from "./apis";
 import type { SimMetrics } from "./types";
 
@@ -49,24 +49,48 @@ const RING: [number, number][] = [
   [0, 1],
 ];
 
+function slowTrail(
+  world: ReturnType<typeof createApisWorld>,
+  pts: { x: number; y: number }[],
+  update: (dt: number) => void,
+  dt: number,
+) {
+  // Paint slowly so avg speed < TRAIL_MAX_SPEED
+  world.pointerDown(pts[0]!.x, pts[0]!.y);
+  update(dt);
+  for (let i = 1; i < pts.length; i++) {
+    world.pointerMove(pts[i]!.x, pts[i]!.y);
+    // ~40 px/s → wait
+    const d = Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
+    const wait = Math.max(dt, d / 55);
+    for (let t = 0; t < wait; t += dt) update(dt);
+  }
+  world.pointerUp();
+  update(dt);
+}
+
 function runPlaythrough(seedNum: number): { metrics: SimMetrics; notes: string[] } {
   const rng = mulberry32(seedNum);
   const world = createApisWorld({ silent: true, rng });
   const notes: string[] = [];
   const dt = 1 / 30;
-  const maxT = 300;
+  const maxT = 620;
   const cx = W * 0.5;
   const cy = H * 0.48;
 
   let planted = false;
   let lastBuildT = -10;
   let lastRouteT = -10;
+  let midTrailAt = -1;
 
-  for (let simT = 0; simT < maxT; simT += dt) {
+  const step = () => {
+    world.update(dt);
+  };
+
+  for (let simT = 0; simT < maxT; ) {
     const m = world.metrics();
     const snap = world.snapshot();
 
-    // Plant core ~0:12–0:18
     if (!planted && m.time >= 14) {
       world.pointerDown(cx, cy);
       world.pointerUp();
@@ -74,21 +98,17 @@ function runPlaythrough(seedNum: number): { metrics: SimMetrics; notes: string[]
       lastBuildT = m.time;
     }
 
-    if (planted) {
-      // Build ring first, then expand toward tree
+    if (planted && !m.bigFlight) {
       const built = new Set(snap.chambers.filter((c) => c.grow >= 1).map((c) => `${c.q},${c.r}`));
       const growing = snap.chambers.some((c) => c.grow < 1);
-
       const nBuilt = snap.chambers.filter((c) => c.grow >= 1).length;
       const buildCd = !snap.ringClosed ? 0.7 : nBuilt < 12 ? 1.0 : 2.9;
-      // Pace ring (~2:15) and pause expansion through traffic (~3:20) before tree push
       const holdRing = !snap.ringClosed && nBuilt >= 3 && m.time < 124;
       const holdExpand = snap.ringClosed && nBuilt >= 11 && m.time < 225;
       if (holdRing || holdExpand) {
         // wait
       } else if (!growing && m.time - lastBuildT > buildCd && snap.wax >= 0.3) {
         let target: [number, number] | null = null;
-
         if (!snap.ringClosed) {
           for (const cell of RING) {
             if (!built.has(`${cell[0]},${cell[1]}`)) {
@@ -97,7 +117,6 @@ function runPlaythrough(seedNum: number): { metrics: SimMetrics; notes: string[]
             }
           }
         } else {
-          // Expand toward golden tree
           const tree = snap.flowers.find((f) => f.tree);
           if (tree) {
             let best: [number, number] | null = null;
@@ -105,9 +124,7 @@ function runPlaythrough(seedNum: number): { metrics: SimMetrics; notes: string[]
             const candidates: [number, number][] = [];
             for (const ch of snap.chambers) {
               if (ch.grow < 1) continue;
-              for (const [dq, dr] of RING) {
-                candidates.push([ch.q + dq, ch.r + dr]);
-              }
+              for (const [dq, dr] of RING) candidates.push([ch.q + dq, ch.r + dr]);
             }
             for (const [q, r] of candidates) {
               if (q === 0 && r === 0) continue;
@@ -115,7 +132,6 @@ function runPlaythrough(seedNum: number): { metrics: SimMetrics; notes: string[]
               if (snap.chambers.some((c) => c.q === q && c.r === r)) continue;
               const [px, py] = axialToPixel(q, r, cx, cy);
               const d = Math.hypot(tree.x - px, tree.y - py);
-              // Must be adjacent to hive — try build; world rejects invalid
               if (d < bd) {
                 bd = d;
                 best = [q, r];
@@ -124,7 +140,6 @@ function runPlaythrough(seedNum: number): { metrics: SimMetrics; notes: string[]
             target = best;
           }
         }
-
         if (target) {
           const [px, py] = axialToPixel(target[0], target[1], cx, cy);
           world.pointerDown(px, py);
@@ -133,12 +148,10 @@ function runPlaythrough(seedNum: number): { metrics: SimMetrics; notes: string[]
         }
       }
 
-      // Route workers to nearest in-reach flower; tree when ready
       if (m.time - lastRouteT > 1.2 && (snap.workers.length > 0 || m.time > 30)) {
         const tree = snap.flowers.find((f) => f.tree);
         const hive = snap.core ?? { x: cx, y: cy };
         const all = snap.flowers;
-
         const dest = all
           .map((f, i) => ({ f, i }))
           .filter(({ f }) => !f.tree)
@@ -147,10 +160,8 @@ function runPlaythrough(seedNum: number): { metrics: SimMetrics; notes: string[]
             (a, b) =>
               Math.hypot(a.f.x - hive.x, a.f.y - hive.y) - Math.hypot(b.f.x - hive.x, b.f.y - hive.y),
           );
-
         const routed = new Set(snap.workers.filter((w) => w.flower >= 0).map((w) => w.flower));
         let pickIdx = dest[0]?.i ?? -1;
-
         if (
           tree &&
           snap.chambers.filter((c) => c.grow >= 1).length >= TREE_MIN_CHAMBERS &&
@@ -166,9 +177,8 @@ function runPlaythrough(seedNum: number): { metrics: SimMetrics; notes: string[]
             }
           }
         }
-
         if (pickIdx >= 0) {
-          const pick = all[pickIdx];
+          const pick = all[pickIdx]!;
           world.pointerDown(hive.x + 8, hive.y);
           world.pointerMove(pick.x, pick.y);
           world.pointerUp();
@@ -177,7 +187,86 @@ function runPlaythrough(seedNum: number): { metrics: SimMetrics; notes: string[]
       }
     }
 
-    world.update(dt);
+    // Midgame pheromone trails at wow windows
+    if (m.bigFlight && m.time - midTrailAt > 3) {
+      const hive = snap.core ?? { x: cx, y: cy };
+      if (m.trailTime === null && m.time >= 342) {
+        // Slow trail into meadow
+        const ang = 0.4 + (seedNum % 7) * 0.15;
+        const pts: { x: number; y: number }[] = [];
+        for (let i = 0; i <= 18; i++) {
+          const t = i / 18;
+          pts.push({
+            x: hive.x + Math.cos(ang) * (40 + t * 200),
+            y: hive.y + Math.sin(ang) * (30 + t * 160),
+          });
+        }
+        // Ensure length
+        let len = 0;
+        for (let i = 1; i < pts.length; i++)
+          len += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
+        if (len < TRAIL_MIN_LEN) {
+          pts.push({
+            x: pts[pts.length - 1]!.x + Math.cos(ang) * 80,
+            y: pts[pts.length - 1]!.y + Math.sin(ang) * 60,
+          });
+        }
+        slowTrail(world, pts, step, dt);
+        midTrailAt = world.metrics().time;
+        simT = world.metrics().time;
+        continue;
+      }
+      if (m.floor2Time === null && m.trailTime !== null && m.time >= 415) {
+        // Arc around hive
+        const pts: { x: number; y: number }[] = [];
+        const r = 95;
+        for (let i = 0; i <= 20; i++) {
+          const a = -0.4 + (i / 20) * 2.4;
+          pts.push({ x: hive.x + Math.cos(a) * r, y: hive.y + Math.sin(a) * r * 0.85 });
+        }
+        slowTrail(world, pts, step, dt);
+        midTrailAt = world.metrics().time;
+        simT = world.metrics().time;
+        continue;
+      }
+      if (m.swarmTime === null && m.floor2Time !== null && m.time >= 488) {
+        const dest = snap.meadow2 ?? snap.flowers.reduce((best, f) => {
+          const d = Math.hypot(f.x - hive.x, f.y - hive.y);
+          const bd = Math.hypot(best.x - hive.x, best.y - hive.y);
+          return d > bd ? f : best;
+        }, snap.flowers[0]!);
+        const pts: { x: number; y: number }[] = [];
+        for (let i = 0; i <= 22; i++) {
+          const t = i / 22;
+          pts.push({
+            x: hive.x + (dest.x - hive.x) * t,
+            y: hive.y + (dest.y - hive.y) * t,
+          });
+        }
+        slowTrail(world, pts, step, dt);
+        midTrailAt = world.metrics().time;
+        simT = world.metrics().time;
+        continue;
+      }
+      if (m.joinTime === null && m.swarmTime !== null && m.time >= 552) {
+        const dest = snap.secondHive ?? snap.meadow2 ?? { x: hive.x + 200, y: hive.y };
+        const pts: { x: number; y: number }[] = [];
+        for (let i = 0; i <= 20; i++) {
+          const t = i / 20;
+          pts.push({
+            x: hive.x + (dest.x - hive.x) * t,
+            y: hive.y + (dest.y - hive.y) * t,
+          });
+        }
+        slowTrail(world, pts, step, dt);
+        midTrailAt = world.metrics().time;
+        simT = world.metrics().time;
+        continue;
+      }
+    }
+
+    step();
+    simT = world.metrics().time;
   }
 
   const metrics = world.metrics();
@@ -190,21 +279,55 @@ function runPlaythrough(seedNum: number): { metrics: SimMetrics; notes: string[]
   if (metrics.trafficTime === null || metrics.trafficTime < 175 || metrics.trafficTime > 230)
     notes.push(`traffic off ~3:20 (${fmt(metrics.trafficTime)})`);
   if (!metrics.bigFlight) notes.push("big flight not reached by 5:00");
-  else if (metrics.bigFlightTime !== null && (metrics.bigFlightTime < 240 || metrics.bigFlightTime > 295))
+  else if (
+    metrics.bigFlightTime !== null &&
+    (metrics.bigFlightTime < 240 || metrics.bigFlightTime > 295)
+  )
     notes.push(`big flight off ~4:40 (${fmt(metrics.bigFlightTime)})`);
-  const marks = [
+
+  const early = [
     metrics.firstWorker,
     metrics.firstNectar,
     metrics.ringTime,
     metrics.trafficTime,
     metrics.bigFlightTime,
   ];
-  for (let i = 1; i < marks.length; i++) {
-    const a = marks[i - 1];
-    const b = marks[i];
+  for (let i = 1; i < early.length; i++) {
+    const a = early[i - 1];
+    const b = early[i];
     if (a !== null && b !== null && b - a > 90)
-      notes.push(`gap >90s between milestones (${fmt(a)} → ${fmt(b)})`);
+      notes.push(`early gap >90s (${fmt(a)} → ${fmt(b)})`);
   }
+
+  if (metrics.trailTime === null) notes.push("no trail wow");
+  else if (Math.abs(metrics.trailTime - 345) > 20)
+    notes.push(`trail off ~5:45 (${fmt(metrics.trailTime)})`);
+  if (metrics.floor2Time === null) notes.push("no floor2 wow");
+  else if (Math.abs(metrics.floor2Time - 420) > 20)
+    notes.push(`floor2 off ~7:00 (${fmt(metrics.floor2Time)})`);
+  if (metrics.swarmTime === null) notes.push("no swarm wow");
+  else if (Math.abs(metrics.swarmTime - 495) > 20)
+    notes.push(`swarm off ~8:15 (${fmt(metrics.swarmTime)})`);
+  if (metrics.joinTime === null) notes.push("no join wow");
+  else if (Math.abs(metrics.joinTime - 560) > 20)
+    notes.push(`join off ~9:20 (${fmt(metrics.joinTime)})`);
+  if (metrics.hintTime === null) notes.push("no hint");
+  else if (Math.abs(metrics.hintTime - 600) > 20)
+    notes.push(`hint off ~10:00 (${fmt(metrics.hintTime)})`);
+
+  const mid = [
+    metrics.trailTime,
+    metrics.floor2Time,
+    metrics.swarmTime,
+    metrics.joinTime,
+    metrics.hintTime,
+  ];
+  for (let i = 1; i < mid.length; i++) {
+    const a = mid[i - 1];
+    const b = mid[i];
+    if (a !== null && b !== null && b - a > 90) notes.push(`mid gap >90s (${fmt(a)} → ${fmt(b)})`);
+  }
+
   return { metrics, notes };
 }
 
@@ -237,12 +360,22 @@ function accept(r: Result): boolean {
     metrics.bigFlightTime !== null &&
     metrics.bigFlightTime >= 240 &&
     metrics.bigFlightTime <= 295;
+  const trailOk = metrics.trailTime !== null && Math.abs(metrics.trailTime - 345) <= 20;
+  const floorOk = metrics.floor2Time !== null && Math.abs(metrics.floor2Time - 420) <= 20;
+  const swarmOk = metrics.swarmTime !== null && Math.abs(metrics.swarmTime - 495) <= 20;
+  const joinOk = metrics.joinTime !== null && Math.abs(metrics.joinTime - 560) <= 20;
+  const hintOk = metrics.hintTime !== null && Math.abs(metrics.hintTime - 600) <= 20;
   const marks = [
     metrics.firstWorker,
     metrics.firstNectar,
     metrics.ringTime,
     metrics.trafficTime,
     metrics.bigFlightTime,
+    metrics.trailTime,
+    metrics.floor2Time,
+    metrics.swarmTime,
+    metrics.joinTime,
+    metrics.hintTime,
   ];
   let gapsOk = true;
   for (let i = 1; i < marks.length; i++) {
@@ -250,25 +383,20 @@ function accept(r: Result): boolean {
     const b = marks[i];
     if (a === null || b === null || b - a > 90) gapsOk = false;
   }
-  const fpsOk = fps >= 60;
-  return wOk && nOk && rOk && tOk && bOk && gapsOk && fpsOk;
-}
-
-function score(r: Result): number {
-  let s = 0;
-  const targets = [
-    [r.metrics.firstWorker, 35],
-    [r.metrics.firstNectar, 80],
-    [r.metrics.ringTime, 135],
-    [r.metrics.trafficTime, 200],
-    [r.metrics.bigFlightTime, 280],
-  ] as const;
-  for (const [v, tgt] of targets) {
-    if (v !== null) s += Math.max(0, 100 - Math.abs(v - tgt));
-  }
-  if (r.metrics.bigFlight) s += 40;
-  if (r.fps >= 60) s += 20;
-  return s;
+  return (
+    wOk &&
+    nOk &&
+    rOk &&
+    tOk &&
+    bOk &&
+    trailOk &&
+    floorOk &&
+    swarmOk &&
+    joinOk &&
+    hintOk &&
+    gapsOk &&
+    fps >= 60
+  );
 }
 
 function median(vals: (number | null)[]): number | null {
@@ -290,7 +418,6 @@ async function main(): Promise<void> {
     results.push(result);
   }
 
-  const best = results.reduce((a, b) => (score(b) > score(a) ? b : a));
   const okCount = results.filter((r) => r.ok).length;
   const med = {
     firstWorker: median(results.map((r) => r.metrics.firstWorker)),
@@ -298,6 +425,11 @@ async function main(): Promise<void> {
     ring: median(results.map((r) => r.metrics.ringTime)),
     traffic: median(results.map((r) => r.metrics.trafficTime)),
     bigFlight: median(results.map((r) => r.metrics.bigFlightTime)),
+    trail: median(results.map((r) => r.metrics.trailTime)),
+    floor2: median(results.map((r) => r.metrics.floor2Time)),
+    swarm: median(results.map((r) => r.metrics.swarmTime)),
+    join: median(results.map((r) => r.metrics.joinTime)),
+    hint: median(results.map((r) => r.metrics.hintTime)),
   };
 
   console.log(
@@ -307,29 +439,27 @@ async function main(): Promise<void> {
         okCount,
         seeds: results.length,
         medians: {
-          firstWorkerSec: med.firstWorker,
           firstWorker: fmt(med.firstWorker),
-          firstNectarSec: med.firstNectar,
           firstNectar: fmt(med.firstNectar),
-          ringSec: med.ring,
           ring: fmt(med.ring),
-          trafficSec: med.traffic,
           traffic: fmt(med.traffic),
-          bigFlightSec: med.bigFlight,
           bigFlight: fmt(med.bigFlight),
+          trail: fmt(med.trail),
+          floor2: fmt(med.floor2),
+          swarm: fmt(med.swarm),
+          join: fmt(med.join),
+          hint: fmt(med.hint),
         },
-        bestSeed: best.seed,
-        bestOk: best.ok,
         fps: Math.round(fps),
         updateMs: Number(updateMs.toFixed(3)),
-        notes: best.notes,
+        notes: results.flatMap((r) => r.notes.map((n) => `seed ${r.seed}: ${n}`)),
       },
       null,
       2,
     ),
   );
 
-  if (okCount === 0) process.exit(1);
+  if (okCount < results.length) process.exit(1);
 }
 
 main().catch((e) => {

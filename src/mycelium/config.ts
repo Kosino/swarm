@@ -33,3 +33,30 @@ export const CAM_ZOOM_DUR = 2.8;
 export const DUM_FREQ = 108;
 export const DUM_FREQ_BIG = 52;
 export const DUM_DUR = 0.28;
+
+/** Build #5 — encircle midgame (minutes 5–10). */
+/** Jump target for ?start=5 (~4:40 after big anchor). */
+export const START5_T = 280;
+/** Encircle stroke: min path length to count as a loop. */
+export const ENC_MIN_LEN = 140;
+/** Close the loop when pointer returns within this of stroke start. */
+export const ENC_CLOSE_R = 36;
+/** Min samples on encircle path. */
+export const ENC_MIN_PTS = 10;
+/** Matter (machine / beetle) radii. */
+export const MATTER_R_MACHINE = 28;
+export const MATTER_R_BEETLE = 36;
+/** Hyphae slide on matter surface instead of piercing (pre-decay). */
+export const MATTER_SLIDE_R = 1.15;
+/** Target wow times (seconds) — headless aims near these. */
+export const WOW_DECAY = 345;
+export const WOW_FRUIT = 420;
+export const WOW_SPORE = 495;
+export const WOW_JOIN = 560;
+export const WOW_HINT = 600;
+/** Spore rain: new germs spawned. */
+export const SPORE_GERMS = 4;
+/** Heartbeat after network join. */
+export const JOIN_PULSE_PERIOD = 1.85;
+/** Foreign network hint duration. */
+export const HINT_DUR = 3.2;
