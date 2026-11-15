@@ -7,7 +7,6 @@ on:
       - reopened
       - synchronize
       - closed
-  # Agent pushes with app tokens often skip pull_request synchronize; allow explicit redeploy.
   workflow_dispatch:
     inputs:
       pr_number:
@@ -39,11 +38,47 @@ jobs:
           node-version: "22"
           cache: npm
 
-      - name: Install and build
+      - name: Install and build web sketch
         if: github.event.action != 'closed' && (github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'deploy')
         run: |
           npm ci
           npm run build
+
+      - name: Cache Godot
+        if: github.event.action != 'closed' && (github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'deploy')
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-4.3-stable-linux-templates
+
+      - name: Install Godot 4.3
+        if: >-
+          github.event.action != 'closed' &&
+          (github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'deploy') &&
+          steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/godot" "$HOME/.local/share/godot/export_templates/4.3.stable"
+          curl -sL -o /tmp/godot.zip \
+            "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip"
+          unzip -o /tmp/godot.zip -d "$HOME/godot"
+          curl -sL -o /tmp/templates.tpz \
+            "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz"
+          unzip -o /tmp/templates.tpz -d /tmp/godot-templates
+          cp /tmp/godot-templates/templates/* "$HOME/.local/share/godot/export_templates/4.3.stable/"
+          chmod +x "$HOME/godot"/Godot_v4.3-stable_linux.x86_64
+
+      - name: Export Godot Web → dist/godot/
+        if: github.event.action != 'closed' && (github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'deploy')
+        run: |
+          GODOT="$HOME/godot/Godot_v4.3-stable_linux.x86_64"
+          mkdir -p dist/godot
+          "$GODOT" --headless --path godot --import
+          "$GODOT" --headless --path godot --export-release "Web" "../dist/godot/index.html"
+          ls -la dist/godot/
 
       - name: Deploy preview
         uses: rossjrw/pr-preview-action@v1
