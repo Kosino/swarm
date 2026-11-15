@@ -57,7 +57,16 @@ import type {
   Matter,
   Germ,
 } from "./types";
-import { mountCanvas } from "../core";
+import {
+  mountCanvas,
+  drawGuidePulse,
+  drawGhostHand,
+  IDLE_GHOST_S,
+  MAX_GHOST_PERFORMS,
+  type DemoControls,
+  type GuidanceInfo,
+  type WowEvent,
+} from "../core";
 
 const SOIL_TILE = 64;
 const SEG_TH = [7.5, 10.5, 13.5, 17];
@@ -139,6 +148,9 @@ export type MyceliumWorld = {
   setAtlas: (atlas: MycAtlas) => void;
   /** Bootstrap post–big-anchor state at ~4:40. */
   bootstrapStart5: () => void;
+  guidance: () => GuidanceInfo;
+  pollWows: () => WowEvent[];
+  notePointer: () => void;
 };
 
 /** Shared Build #1+#2 sim — canvas optional for headless runs. */
@@ -226,6 +238,27 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
   let foreignNet = 0;
   let foreignSeed: { x: number; y: number } | null = null;
   let decayCount = 0;
+
+  /** Guidance / demo. */
+  let idleT = 0;
+  let showGhost = false;
+  const stepPerforms = new Map<string, number>();
+  const emittedWows = new Set<string>();
+  const wowQueue: WowEvent[] = [];
+  let prevAnchors = 0;
+  let prevDensify = false;
+
+  const bumpPerform = (stepId: string) => {
+    stepPerforms.set(stepId, (stepPerforms.get(stepId) ?? 0) + 1);
+  };
+
+  const canGhost = (stepId: string) => (stepPerforms.get(stepId) ?? 0) < MAX_GHOST_PERFORMS;
+
+  const emitWow = (id: string, label: string, t: number | null) => {
+    if (t === null || emittedWows.has(id)) return;
+    emittedWows.add(id);
+    wowQueue.push({ id, label, time: t });
+  };
 
   const pushSeg = (
     x1: number,
@@ -562,8 +595,180 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
       addTip(x, y, base + (i * Math.PI * 2) / k + (rnd() - 0.5) * 0.6, -1);
   };
 
+  const notePointer = () => {
+    idleT = 0;
+    showGhost = false;
+  };
+
+  const guidance = (): GuidanceInfo => {
+    const tip = tips[0] ?? (seed ? { x: seed.x, y: seed.y } : { x: W / 2, y: H / 2 });
+    const unlit = patches.filter((p) => !p.on && !p.big);
+    const nearest = unlit.length
+      ? unlit.reduce((b, p) =>
+          Math.hypot(p.x - tip.x, p.y - tip.y) < Math.hypot(b.x - tip.x, b.y - tip.y) ? p : b,
+        )
+      : null;
+    const big = patches.find((p) => p.big && !p.on);
+    const machine = matters.find((m) => m.kind === "machine" && !m.encircled);
+    const beetle = matters.find((m) => m.kind === "beetle" && !m.encircled);
+    const fruits = matters.filter((m) => m.kind === "fruit");
+    const germ = germs.find((g) => !g.linked);
+
+    if (!seed) {
+      return {
+        stepId: "plant",
+        label: "Klepni — zasaď zárodek",
+        target: { x: hovering ? hx : W / 2, y: hovering ? hy : H / 2, r: 18 },
+        target2: null,
+        ghost: "tap",
+        from: null,
+        to: { x: W / 2, y: H / 2, r: 18 },
+      };
+    }
+    if (firstAnchor === null) {
+      const t = nearest ?? { x: tip.x + 80, y: tip.y, r: 20 };
+      return {
+        stepId: "anchor1",
+        label: "Táhni hyfy ke skvrně",
+        target: { x: t.x, y: t.y, r: t.r ?? 20 },
+        target2: null,
+        ghost: "drag",
+        from: { x: tip.x, y: tip.y, r: 8 },
+        to: { x: t.x, y: t.y, r: t.r ?? 20 },
+      };
+    }
+    if ((midstep === null && patches.filter((p) => p.on && !p.big).length < 3) || midstep === null) {
+      if (nearest && patches.filter((p) => p.on && !p.big).length < 3) {
+        return {
+          stepId: "anchors",
+          label: "Kotvi další skvrny",
+          target: { x: nearest.x, y: nearest.y, r: nearest.r },
+          target2: null,
+          ghost: "drag",
+          from: { x: tip.x, y: tip.y, r: 8 },
+          to: { x: nearest.x, y: nearest.y, r: nearest.r },
+        };
+      }
+    }
+    if (firstFusion === null) {
+      return {
+        stepId: "fuse",
+        label: "Spoj hyfy do smyčky",
+        target: tips[0] ? { x: tips[0].x, y: tips[0].y, r: 16 } : null,
+        target2: tips[1] ? { x: tips[1].x, y: tips[1].y, r: 16 } : null,
+        ghost: "drag",
+        from: tips[0] ? { x: tips[0].x, y: tips[0].y, r: 8 } : null,
+        to: tips[1]
+          ? { x: tips[1].x, y: tips[1].y, r: 8 }
+          : seed
+            ? { x: seed.x + 60, y: seed.y, r: 8 }
+            : null,
+      };
+    }
+    if (firstWorkers === null) {
+      const hx0 = tips[0]?.x ?? seed.x;
+      const hy0 = tips[0]?.y ?? seed.y;
+      return {
+        stepId: "hold",
+        label: "Podrž — zahušť síť",
+        target: { x: hx0, y: hy0, r: 28 },
+        target2: null,
+        ghost: "hold",
+        from: null,
+        to: { x: hx0, y: hy0, r: 28 },
+      };
+    }
+    if (!bigAnchored) {
+      const t = big ?? nearest;
+      if (t) {
+        return {
+          stepId: "big",
+          label: "Dosáhni velké skvrny",
+          target: { x: t.x, y: t.y, r: t.r },
+          target2: null,
+          ghost: "drag",
+          from: { x: tip.x, y: tip.y, r: 8 },
+          to: { x: t.x, y: t.y, r: t.r },
+        };
+      }
+    }
+    if (decayTime === null && machine) {
+      return {
+        stepId: "decay",
+        label: "Zakroužkuj stroj",
+        target: { x: machine.x, y: machine.y, r: machine.r },
+        target2: null,
+        ghost: "encircle",
+        from: null,
+        to: { x: machine.x, y: machine.y, r: machine.r },
+      };
+    }
+    if (fruitTime === null && beetle) {
+      return {
+        stepId: "fruit",
+        label: "Zakroužkuj brouka",
+        target: { x: beetle.x, y: beetle.y, r: beetle.r },
+        target2: null,
+        ghost: "encircle",
+        from: null,
+        to: { x: beetle.x, y: beetle.y, r: beetle.r },
+      };
+    }
+    if (sporeTime === null && fruits.length) {
+      const mx = fruits.reduce((s, f) => s + f.x, 0) / fruits.length;
+      const my = fruits.reduce((s, f) => s + f.y, 0) / fruits.length;
+      return {
+        stepId: "spore",
+        label: "Zakroužkuj plodnice",
+        target: { x: fruits[0]!.x, y: fruits[0]!.y, r: fruits[0]!.r },
+        target2: fruits[1] ? { x: fruits[1].x, y: fruits[1].y, r: fruits[1].r } : null,
+        ghost: "encircle",
+        from: null,
+        to: { x: mx, y: my, r: 50 },
+      };
+    }
+    if (joinTime === null && germ) {
+      return {
+        stepId: "join",
+        label: "Doveď síť k zárodkům",
+        target: { x: germ.x, y: germ.y, r: 16 },
+        target2: null,
+        ghost: "drag",
+        from: { x: tip.x, y: tip.y, r: 8 },
+        to: { x: germ.x, y: germ.y, r: 16 },
+      };
+    }
+    return {
+      stepId: "watch",
+      label: hintTime ? "Sleduj okraj tmy" : "Sleduj síť",
+      target: foreignSeed ? { x: foreignSeed.x, y: foreignSeed.y, r: 24 } : null,
+      target2: null,
+      ghost: null,
+      from: null,
+      to: null,
+    };
+  };
+
+  const pollWows = (): WowEvent[] => {
+    emitWow("anchor", "První kotva", firstAnchor);
+    emitWow("midstep", "Třetí kotva", midstep);
+    emitWow("fusion", "Fúze", firstFusion);
+    emitWow("workers", "Cvrkot", firstWorkers);
+    emitWow("big", "Velká kotva", bigAnchorTime);
+    emitWow("decay", "Obrůstání", decayTime);
+    emitWow("fruit", "Plodnice", fruitTime);
+    emitWow("spore", "Výtrusný déšť", sporeTime);
+    emitWow("join", "Spojení sítí", joinTime);
+    emitWow("hint", "Cizí síť", hintTime);
+    if (!wowQueue.length) return [];
+    return wowQueue.splice(0, wowQueue.length);
+  };
+
   const pointerDown = (x: number, y: number) => {
-    if (!seed) plantSeed(x, y);
+    if (!seed) {
+      plantSeed(x, y);
+      bumpPerform("plant");
+    }
     dragging = true;
     holdT = 0;
     densify = false;
@@ -800,6 +1005,8 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
 
   const update = (dt: number) => {
     time += dt;
+    idleT += dt;
+    if (idleT >= IDLE_GHOST_S) showGhost = true;
     if (fusionCd > 0) fusionCd = Math.max(0, fusionCd - dt);
     if (!dragging) {
       guideW = Math.max(0, guideW - dt * 0.08);
@@ -811,8 +1018,23 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
         densify = true;
         densifyX = hx;
         densifyY = hy;
+        if (!prevDensify) bumpPerform("hold");
       }
     }
+    prevDensify = densify;
+    const anchorsNow = patches.filter((p) => p.on).length;
+    if (anchorsNow > prevAnchors) {
+      if (prevAnchors === 0) bumpPerform("anchor1");
+      else bumpPerform("anchors");
+      if (bigAnchored) bumpPerform("big");
+    }
+    prevAnchors = anchorsNow;
+    if (firstFusion !== null && (stepPerforms.get("fuse") ?? 0) === 0) bumpPerform("fuse");
+    if (firstWorkers !== null && (stepPerforms.get("hold") ?? 0) === 0) bumpPerform("hold");
+    if (decayTime !== null && (stepPerforms.get("decay") ?? 0) === 0) bumpPerform("decay");
+    if (fruitTime !== null && (stepPerforms.get("fruit") ?? 0) === 0) bumpPerform("fruit");
+    if (sporeTime !== null && (stepPerforms.get("spore") ?? 0) === 0) bumpPerform("spore");
+    if (joinTime !== null && (stepPerforms.get("join") ?? 0) === 0) bumpPerform("join");
     if (time >= BIG_APPEAR_T) spawnBigPatch();
     if (bigAnchored) spawnMatters();
     if (camZoom !== camZoomTarget) {
@@ -1355,6 +1577,16 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
       ctx.arc(r.x, r.y, (r.big ? 10 : 5) + k * (r.big ? 50 : 26), 0, Math.PI * 2);
       ctx.stroke();
     }
+
+    // Diegetic guidance (always) — soft pulse + idle ghost hand
+    {
+      const g = guidance();
+      if (g.target) drawGuidePulse(ctx, g.target, time);
+      if (g.target2) drawGuidePulse(ctx, g.target2, time + 0.7, 0.35);
+      if (showGhost && g.ghost && canGhost(g.stepId)) {
+        drawGhostHand(ctx, g.ghost, g.from, g.to ?? g.target, time);
+      }
+    }
     ctx.restore();
   };
 
@@ -1489,12 +1721,19 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
     stressFill,
     setAtlas,
     bootstrapStart5,
+    guidance,
+    pollWows,
+    notePointer,
   };
 }
 
 /** Mount mycelium sim on a canvas. Returns cleanup. */
-export function startMycelium(cv: HTMLCanvasElement, startAt?: number): () => void {
+export function startMycelium(
+  cv: HTMLCanvasElement,
+  startAt?: number,
+  demo?: DemoControls,
+): () => void {
   const world = createMyceliumWorld({ startAt });
   void loadMyceliumAtlas().then((a) => world.setAtlas(a));
-  return mountCanvas(cv, world, W, H);
+  return mountCanvas(cv, world, W, H, { demo });
 }

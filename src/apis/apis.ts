@@ -56,7 +56,17 @@ import type {
   PheromoneTrail,
   TrailPt,
 } from "./types";
-import { mountCanvas } from "../core";
+import {
+  mountCanvas,
+  drawGuidePulse,
+  drawGhostHand,
+  IDLE_GHOST_S,
+  MAX_GHOST_PERFORMS,
+  type DemoControls,
+  type GuidanceInfo,
+  type GuideTarget,
+  type WowEvent,
+} from "../core";
 
 const RING: [number, number][] = [
   [1, 0],
@@ -121,6 +131,9 @@ export type ApisWorld = {
   snapshot: () => WorldSnapshot;
   stressFill: (workerCount: number) => void;
   bootstrapStart5: () => void;
+  guidance: () => GuidanceInfo;
+  pollWows: () => WowEvent[];
+  notePointer: () => void;
 };
 
 function pathLen(pts: TrailPt[]): number {
@@ -280,6 +293,22 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
   let meadowBloom = 0;
   let hivePulseSync = 0;
 
+  /** Guidance / demo. */
+  let idleT = 0;
+  let showGhost = false;
+  const stepPerforms = new Map<string, number>();
+  const emittedWows = new Set<string>();
+  const wowQueue: WowEvent[] = [];
+  const bumpPerform = (stepId: string) => {
+    stepPerforms.set(stepId, (stepPerforms.get(stepId) ?? 0) + 1);
+  };
+  const canGhost = (stepId: string) => (stepPerforms.get(stepId) ?? 0) < MAX_GHOST_PERFORMS;
+  const emitWow = (id: string, label: string, t: number | null) => {
+    if (t === null || emittedWows.has(id)) return;
+    emittedWows.add(id);
+    wowQueue.push({ id, label, time: t });
+  };
+
   const dum = (deep: boolean) => {
     if (!silent) playDum(deep);
   };
@@ -431,10 +460,12 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
 
     if (kind === "meadow" && trailTime === null) {
       trailTime = time;
+      bumpPerform("trail");
       soft("open");
       wax = Math.min(WAX_MAX, wax + 0.35);
     } else if (kind === "arc" && floor2Time === null) {
       floor2Time = time;
+      bumpPerform("arc");
       floor2 = true;
       hiveScale = Math.max(hiveScale, 1.32);
       corePulse = 1;
@@ -465,6 +496,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
       }
     } else if (kind === "highway" && swarmTime === null) {
       swarmTime = time;
+      bumpPerform("swarm");
       soft("dual");
       const last = pts[pts.length - 1]!;
       secondHive = {
@@ -487,6 +519,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
       }
     } else if (kind === "join" && joinTime === null && secondHive) {
       joinTime = time;
+      bumpPerform("join");
       soft("chord");
       highwayGlow = 1.4;
       hivePulseSync = 1;
@@ -692,6 +725,8 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
 
     if (!routes.some((rt) => rt.flower === flowerIdx)) {
       routes.push({ flower: flowerIdx, glow: 0.4 });
+      bumpPerform("route");
+      bumpPerform("traffic");
     }
 
     // Send idle workers on this route
@@ -703,6 +738,7 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
         w.carrying = false;
       }
     }
+    if (f.tree) bumpPerform("tree");
     return true;
   };
 
@@ -721,6 +757,8 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
 
   const update = (dt: number) => {
     time += dt;
+    idleT += dt;
+    if (idleT >= IDLE_GHOST_S) showGhost = true;
     if (shiver > 0) shiver = Math.max(0, shiver - dt);
     if (corePulse > 0) corePulse = Math.max(0, corePulse - dt * 0.7);
     pulseHexGlow = 0.55 + 0.45 * Math.sin(time * 2.4);
@@ -1313,7 +1351,198 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
       }
     }
 
+    // Diegetic guidance (always)
+    {
+      const g = guidance();
+      if (g.target) drawGuidePulse(ctx, g.target, time, 0.4);
+      if (g.target2) drawGuidePulse(ctx, g.target2, time + 0.7, 0.3);
+      if (showGhost && g.ghost && canGhost(g.stepId)) {
+        drawGhostHand(ctx, g.ghost, g.from, g.to ?? g.target, time);
+      }
+    }
+
     ctx.restore();
+  };
+
+  const notePointer = () => {
+    idleT = 0;
+    showGhost = false;
+  };
+
+  const guidance = (): GuidanceInfo => {
+    const [hx0, hy0] = hiveCenter();
+    const nearFlower = (() => {
+      let best: Flower | null = null;
+      let bd = Infinity;
+      for (const f of flowers) {
+        if (f.tree) continue;
+        const d = Math.hypot(f.x - hx0, f.y - hy0);
+        if (d < bd && d <= reach() + 8) {
+          bd = d;
+          best = f;
+        }
+      }
+      return best;
+    })();
+    const tree = flowers.find((f) => f.tree);
+
+    if (!planted) {
+      return {
+        stepId: "plant",
+        label: "Klepni — zasaď jádro",
+        target: { x: cx, y: cy, r: HEX },
+        target2: null,
+        ghost: "tap",
+        from: null,
+        to: { x: cx, y: cy, r: HEX },
+      };
+    }
+    if (firstWorker === null || builtCount() < 2) {
+      // Next ring cell
+      let target: GuideTarget | null = null;
+      for (const [q, r] of RING) {
+        if (!chambers.has(hexKey(q, r))) {
+          const [px, py] = axialToPixel(q, r, cx, cy);
+          target = { x: px, y: py, r: HEX };
+          break;
+        }
+      }
+      return {
+        stepId: "build",
+        label: "Stav komory kolem",
+        target,
+        target2: null,
+        ghost: "tap",
+        from: null,
+        to: target,
+      };
+    }
+    if (firstNectar === null) {
+      const f = nearFlower;
+      return {
+        stepId: "route",
+        label: "Táhni k květině",
+        target: f ? { x: f.x, y: f.y, r: f.r } : null,
+        target2: null,
+        ghost: "drag",
+        from: { x: hx0, y: hy0, r: 12 },
+        to: f ? { x: f.x, y: f.y, r: f.r } : null,
+      };
+    }
+    if (!ringClosed) {
+      let target: GuideTarget | null = null;
+      for (const [q, r] of RING) {
+        const ch = chambers.get(hexKey(q, r));
+        if (!ch || ch.grow < 1) {
+          const [px, py] = axialToPixel(q, r, cx, cy);
+          target = { x: px, y: py, r: HEX };
+          break;
+        }
+      }
+      return {
+        stepId: "ring",
+        label: "Uzavři prstenec",
+        target,
+        target2: null,
+        ghost: "tap",
+        from: null,
+        to: target,
+      };
+    }
+    if (!traffic) {
+      const f = nearFlower;
+      return {
+        stepId: "traffic",
+        label: "Odkazuj víc dělnic",
+        target: f ? { x: f.x, y: f.y, r: f.r } : null,
+        target2: null,
+        ghost: "drag",
+        from: { x: hx0, y: hy0, r: 12 },
+        to: f ? { x: f.x, y: f.y, r: f.r } : null,
+      };
+    }
+    if (!bigFlight) {
+      return {
+        stepId: "tree",
+        label: "Dosáhni zlatého stromu",
+        target: tree ? { x: tree.x, y: tree.y, r: tree.r } : null,
+        target2: null,
+        ghost: "drag",
+        from: { x: hx0, y: hy0, r: 12 },
+        to: tree ? { x: tree.x, y: tree.y, r: tree.r } : null,
+      };
+    }
+    if (trailTime === null) {
+      const ang = 0.5;
+      const to = { x: hx0 + Math.cos(ang) * 180, y: hy0 + Math.sin(ang) * 140, r: 16 };
+      return {
+        stepId: "trail",
+        label: "Pomalu namaluj stopu",
+        target: to,
+        target2: null,
+        ghost: "trail",
+        from: { x: hx0, y: hy0, r: 12 },
+        to,
+      };
+    }
+    if (floor2Time === null) {
+      return {
+        stepId: "arc",
+        label: "Oblouk kolem úlu",
+        target: { x: hx0 + 90, y: hy0, r: 20 },
+        target2: null,
+        ghost: "trail",
+        from: { x: hx0 + 90, y: hy0 - 40, r: 12 },
+        to: { x: hx0 + 40, y: hy0 + 85, r: 12 },
+      };
+    }
+    if (swarmTime === null) {
+      const dest = meadow2 ?? { x: hx0 + 200, y: hy0 - 80, r: 24 };
+      return {
+        stepId: "swarm",
+        label: "Stopa k druhé louce",
+        target: { x: dest.x, y: dest.y, r: 28 },
+        target2: null,
+        ghost: "trail",
+        from: { x: hx0, y: hy0, r: 12 },
+        to: { x: dest.x, y: dest.y, r: 28 },
+      };
+    }
+    if (joinTime === null && secondHive) {
+      return {
+        stepId: "join",
+        label: "Spoj úly stopou",
+        target: { x: secondHive.x, y: secondHive.y, r: 22 },
+        target2: null,
+        ghost: "trail",
+        from: { x: hx0, y: hy0, r: 12 },
+        to: { x: secondHive.x, y: secondHive.y, r: 22 },
+      };
+    }
+    return {
+      stepId: "watch",
+      label: hintTime ? "Sleduj soumrak" : "Sleduj louku",
+      target: null,
+      target2: null,
+      ghost: null,
+      from: null,
+      to: null,
+    };
+  };
+
+  const pollWows = (): WowEvent[] => {
+    emitWow("worker", "První líhnutí", firstWorker);
+    emitWow("nectar", "První nektar", firstNectar);
+    emitWow("ring", "Prstenec", ringTime);
+    emitWow("traffic", "Živý provoz", trafficTime);
+    emitWow("big", "Velký let", bigFlightTime);
+    emitWow("trail", "Feromonová stopa", trailTime);
+    emitWow("floor2", "Druhé patro", floor2Time);
+    emitWow("swarm", "Rojení", swarmTime);
+    emitWow("join", "Spojení úlů", joinTime);
+    emitWow("hint", "Soumrak", hintTime);
+    if (!wowQueue.length) return [];
+    return wowQueue.splice(0, wowQueue.length);
   };
 
   const pointerDown = (x: number, y: number) => {
@@ -1331,12 +1560,16 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     if (Math.hypot(px - x, py - y) < HEX * 1.15) {
       if (!planted && q === 0 && r === 0) {
         tryBuild(0, 0);
+        bumpPerform("plant");
         dragging = false;
         strokePts = [];
         return;
       }
       if (planted && isAdjacentToHive(q, r) && !chambers.has(hexKey(q, r))) {
-        tryBuild(q, r);
+        if (tryBuild(q, r)) {
+          bumpPerform("build");
+          bumpPerform("ring");
+        }
         dragging = false;
         strokePts = [];
         return;
@@ -1599,14 +1832,21 @@ export function createApisWorld(opts: WorldOpts = {}): ApisWorld {
     snapshot,
     stressFill,
     bootstrapStart5,
+    guidance,
+    pollWows,
+    notePointer,
   };
 }
 
-export function startApis(cv: HTMLCanvasElement, startAt?: number): () => void {
+export function startApis(
+  cv: HTMLCanvasElement,
+  startAt?: number,
+  demo?: DemoControls,
+): () => void {
   document.body.style.background = "#c8c4b8";
   const app = document.getElementById("app");
   if (app) (app as HTMLElement).style.background = "#c8c4b8";
   cv.style.background = "#d5d0c2";
   const world = createApisWorld({ startAt });
-  return mountCanvas(cv, world, W, H);
+  return mountCanvas(cv, world, W, H, { demo });
 }
