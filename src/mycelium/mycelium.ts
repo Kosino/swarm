@@ -26,8 +26,18 @@ import {
   BIG_EDGE,
   CAM_ZOOM_OUT,
   CAM_ZOOM_DUR,
+  START5_T,
+  ENC_MIN_LEN,
+  ENC_CLOSE_R,
+  ENC_MIN_PTS,
+  MATTER_R_MACHINE,
+  MATTER_R_BEETLE,
+  MATTER_SLIDE_R,
+  SPORE_GERMS,
+  JOIN_PULSE_PERIOD,
+  HINT_DUR,
 } from "./config";
-import { playDum } from "./sound";
+import { playDum, playSoft } from "./sound";
 import {
   loadMyceliumAtlas,
   drawCentered,
@@ -35,8 +45,28 @@ import {
   drawTipSprite,
   type MycAtlas,
 } from "./atlas";
-import type { Seg, Tip, Patch, Pulse, Ring, Speck, Worker, SimMetrics } from "./types";
-import { mountCanvas } from "../core";
+import type {
+  Seg,
+  Tip,
+  Patch,
+  Pulse,
+  Ring,
+  Speck,
+  Worker,
+  SimMetrics,
+  Matter,
+  Germ,
+} from "./types";
+import {
+  mountCanvas,
+  drawGuidePulse,
+  drawGhostHand,
+  IDLE_GHOST_S,
+  MAX_GHOST_PERFORMS,
+  type DemoControls,
+  type GuidanceInfo,
+  type WowEvent,
+} from "../core";
 
 const SOIL_TILE = 64;
 const SEG_TH = [7.5, 10.5, 13.5, 17];
@@ -45,6 +75,28 @@ function wrap(a: number): number {
   while (a > Math.PI) a -= 2 * Math.PI;
   while (a < -Math.PI) a += 2 * Math.PI;
   return a;
+}
+
+function pointInPoly(px: number, py: number, pts: { x: number; y: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i]!.x;
+    const yi = pts[i]!.y;
+    const xj = pts[j]!.x;
+    const yj = pts[j]!.y;
+    const hit =
+      yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi + 1e-9) + xi;
+    if (hit) inside = !inside;
+  }
+  return inside;
+}
+
+function pathLength(pts: { x: number; y: number }[]): number {
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) {
+    len += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
+  }
+  return len;
 }
 
 function distPointSeg(
@@ -70,12 +122,17 @@ export type WorldOpts = {
   silent?: boolean;
   /** Fixed RNG seed; omit for Math.random. */
   rng?: () => number;
+  /** Fast-forward / bootstrap to ~4:40 midgame (?start=5). */
+  startAt?: number;
 };
 
 export type WorldSnapshot = {
   tips: { x: number; y: number }[];
   patches: { x: number; y: number; on: boolean; big?: boolean }[];
   seed: { x: number; y: number } | null;
+  matters: { x: number; y: number; r: number; kind: string; decay: number }[];
+  germs: { x: number; y: number; linked: boolean }[];
+  fruits: { x: number; y: number }[];
 };
 
 export type MyceliumWorld = {
@@ -89,6 +146,11 @@ export type MyceliumWorld = {
   /** Stress-fill network for FPS measurement. */
   stressFill: (segCount: number, workerCount: number) => void;
   setAtlas: (atlas: MycAtlas) => void;
+  /** Bootstrap post–big-anchor state at ~4:40. */
+  bootstrapStart5: () => void;
+  guidance: () => GuidanceInfo;
+  pollWows: () => WowEvent[];
+  notePointer: () => void;
 };
 
 /** Shared Build #1+#2 sim — canvas optional for headless runs. */
@@ -158,6 +220,46 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
   let atlas: MycAtlas | null = null;
   let midWowDone = false;
 
+  /** Build #5 midgame. */
+  const matters: Matter[] = [];
+  const germs: Germ[] = [];
+  const grains: { x: number; y: number; vx: number; vy: number; life: number }[] = [];
+  const spores: { x: number; y: number; vx: number; vy: number; life: number }[] = [];
+  let stroke: { x: number; y: number }[] = [];
+  let strokeActive = false;
+  let mattersSpawned = false;
+  let decayTime: number | null = null;
+  let fruitTime: number | null = null;
+  let sporeTime: number | null = null;
+  let joinTime: number | null = null;
+  let hintTime: number | null = null;
+  let heartBeat = 0;
+  let heartPhase = 0;
+  let foreignNet = 0;
+  let foreignSeed: { x: number; y: number } | null = null;
+  let decayCount = 0;
+
+  /** Guidance / demo. */
+  let idleT = 0;
+  let showGhost = false;
+  const stepPerforms = new Map<string, number>();
+  const emittedWows = new Set<string>();
+  const wowQueue: WowEvent[] = [];
+  let prevAnchors = 0;
+  let prevDensify = false;
+
+  const bumpPerform = (stepId: string) => {
+    stepPerforms.set(stepId, (stepPerforms.get(stepId) ?? 0) + 1);
+  };
+
+  const canGhost = (stepId: string) => (stepPerforms.get(stepId) ?? 0) < MAX_GHOST_PERFORMS;
+
+  const emitWow = (id: string, label: string, t: number | null) => {
+    if (t === null || emittedWows.has(id)) return;
+    emittedWows.add(id);
+    wowQueue.push({ id, label, time: t });
+  };
+
   const pushSeg = (
     x1: number,
     y1: number,
@@ -190,6 +292,253 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
 
   const dum = (big: boolean, soft = false) => {
     if (!silent) playDum(big, soft);
+  };
+
+  const soft = (kind: "bubble" | "puff" | "rain" | "beat" | "hiss") => {
+    if (!silent) playSoft(kind);
+  };
+
+  const spawnMatters = () => {
+    if (mattersSpawned || !seed) return;
+    mattersSpawned = true;
+    const corners: [number, number][] = [
+      [BIG_EDGE + 40, BIG_EDGE + 50],
+      [W - BIG_EDGE - 40, BIG_EDGE + 50],
+      [BIG_EDGE + 50, H - BIG_EDGE - 40],
+      [W - BIG_EDGE - 50, H - BIG_EDGE - 40],
+    ];
+    // Prefer corners away from seed and big patch
+    const big = patches.find((p) => p.big);
+    const scored = corners
+      .map((c) => {
+        let d = Math.hypot(c[0] - seed!.x, c[1] - seed!.y);
+        if (big) d += Math.hypot(c[0] - big.x, c[1] - big.y) * 0.4;
+        return { c, d };
+      })
+      .sort((a, b) => b.d - a.d);
+    const m1 = scored[0]!.c;
+    const m2 = scored[1]!.c;
+    matters.push({
+      x: m1[0],
+      y: m1[1],
+      r: MATTER_R_MACHINE,
+      kind: "machine",
+      decay: 0,
+      encircled: false,
+      ph: rnd() * 6,
+    });
+    matters.push({
+      x: m2[0],
+      y: m2[1],
+      r: MATTER_R_BEETLE,
+      kind: "beetle",
+      decay: 0,
+      encircled: false,
+      ph: rnd() * 6,
+    });
+  };
+
+  const spawnFruitAt = (x: number, y: number) => {
+    matters.push({
+      x,
+      y: y - 8,
+      r: 22,
+      kind: "fruit",
+      decay: 0,
+      encircled: false,
+      ph: rnd() * 6,
+    });
+  };
+
+  const triggerDecay = (m: Matter) => {
+    if (m.encircled || m.kind === "fruit") return;
+    m.encircled = true;
+    decayCount++;
+    if (decayTime === null) {
+      decayTime = time;
+      soft("bubble");
+      dum(true);
+    }
+    // Glow grains toward seed
+    if (seed) {
+      for (let i = 0; i < 18; i++) {
+        const a = rnd() * Math.PI * 2;
+        grains.push({
+          x: m.x + Math.cos(a) * m.r * 0.4,
+          y: m.y + Math.sin(a) * m.r * 0.4,
+          vx: (seed.x - m.x) * (0.15 + rnd() * 0.25),
+          vy: (seed.y - m.y) * (0.15 + rnd() * 0.25),
+          life: 1.2 + rnd() * 0.8,
+        });
+      }
+    }
+    // Thicken nearby segs
+    for (const s of segs) {
+      const mx = (s.x1 + s.x2) * 0.5;
+      const my = (s.y1 + s.y2) * 0.5;
+      if (Math.hypot(mx - m.x, my - m.y) < m.r * 2.2) s.th = Math.min(3, s.th + 1);
+    }
+    rings.push({ x: m.x, y: m.y, t: 0, big: true });
+    networkBright = 1;
+  };
+
+  const triggerFruit = (m: Matter) => {
+    if (m.encircled || m.kind === "fruit") return;
+    triggerDecay(m);
+    // Fruiting body at first decay site
+    const site = matters.find((x) => x.kind !== "fruit" && x.encircled) ?? m;
+    if (!matters.some((x) => x.kind === "fruit")) {
+      spawnFruitAt(site.x, site.y);
+    }
+    // Second fruit near this decay if beetle
+    if (m.kind === "beetle" && matters.filter((x) => x.kind === "fruit").length < 2) {
+      spawnFruitAt(m.x + (rnd() - 0.5) * 30, m.y + (rnd() - 0.5) * 30);
+    }
+    if (fruitTime === null) {
+      fruitTime = time;
+      soft("puff");
+      // Thicken network + more workers density via seg thickness
+      for (const s of segs) {
+        if (rnd() < 0.35) s.th = Math.min(3, s.th + 1);
+      }
+    }
+  };
+
+  const triggerSpore = () => {
+    if (sporeTime !== null) return;
+    const fruits = matters.filter((m) => m.kind === "fruit");
+    if (fruits.length < 1) return;
+    sporeTime = time;
+    soft("rain");
+    for (const f of fruits) {
+      for (let i = 0; i < 22; i++) {
+        const a = rnd() * Math.PI * 2;
+        spores.push({
+          x: f.x,
+          y: f.y,
+          vx: Math.cos(a) * (20 + rnd() * 60),
+          vy: Math.sin(a) * (20 + rnd() * 60),
+          life: 1.5 + rnd(),
+        });
+      }
+      f.encircled = true;
+    }
+    // New germs far from network
+    const cx0 = seed?.x ?? W / 2;
+    const cy0 = seed?.y ?? H / 2;
+    for (let i = 0; i < SPORE_GERMS; i++) {
+      let gx = 0;
+      let gy = 0;
+      for (let t = 0; t < 40; t++) {
+        const a = rnd() * Math.PI * 2;
+        const d = 180 + rnd() * 160;
+        gx = cx0 + Math.cos(a) * d;
+        gy = cy0 + Math.sin(a) * d * 0.85;
+        if (gx > 50 && gx < W - 50 && gy > 50 && gy < H - 50) break;
+      }
+      germs.push({ x: gx, y: gy, lit: 0, linked: false });
+    }
+    rings.push({ x: fruits[0]!.x, y: fruits[0]!.y, t: 0, big: true });
+  };
+
+  const triggerJoin = () => {
+    if (joinTime !== null || germs.length === 0 || !seed) return;
+    joinTime = time;
+    soft("beat");
+    heartBeat = 1;
+    networkPulse = 1;
+    networkBright = 1;
+    for (const g of germs) {
+      g.linked = true;
+      g.lit = 1;
+      // Grow hyphae path toward germ (simplified spine)
+      let x = seed.x;
+      let y = seed.y;
+      let prev = -1;
+      const steps = 8 + Math.floor(rnd() * 4);
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        const nx = seed.x + (g.x - seed.x) * t + (rnd() - 0.5) * 18;
+        const ny = seed.y + (g.y - seed.y) * t + (rnd() - 0.5) * 18;
+        prev = pushSeg(x, y, nx, ny, prev, i > steps - 2 ? 2 : 1);
+        x = nx;
+        y = ny;
+      }
+      addTip(g.x, g.y, rnd() * Math.PI * 2, prev);
+    }
+    const net = wholeNetworkPath(seed.x, seed.y);
+    pulses.push({ path: net, t: 0, dur: 1.2 + net.length * 0.002 });
+  };
+
+  const triggerHint = () => {
+    if (hintTime !== null) return;
+    hintTime = time;
+    soft("hiss");
+    foreignNet = 1;
+    const cx0 = seed?.x ?? W / 2;
+    const cy0 = seed?.y ?? H / 2;
+    // Opposite far edge
+    foreignSeed = {
+      x: cx0 < W / 2 ? W - 70 : 70,
+      y: cy0 < H / 2 ? H - 60 : 60,
+    };
+  };
+
+  const tryEncircle = (): boolean => {
+    if (!bigAnchored || stroke.length < ENC_MIN_PTS) return false;
+    const len = pathLength(stroke);
+    if (len < ENC_MIN_LEN) return false;
+    const first = stroke[0]!;
+    const last = stroke[stroke.length - 1]!;
+    if (Math.hypot(last.x - first.x, last.y - first.y) > ENC_CLOSE_R) return false;
+
+    const intact = matters.filter((m) => m.kind !== "fruit" && !m.encircled);
+    const fruits = matters.filter((m) => m.kind === "fruit" && !m.encircled);
+
+    // Spore: encircle covering ≥2 fruits (or 1 fruit + loop large)
+    if (sporeTime === null && fruits.length >= 1 && decayCount >= 2) {
+      const covered = fruits.filter((f) => pointInPoly(f.x, f.y, stroke));
+      if (covered.length >= Math.min(2, fruits.length) || (fruits.length >= 2 && covered.length >= 1 && len > ENC_MIN_LEN * 1.4)) {
+        triggerSpore();
+        return true;
+      }
+    }
+
+    // Fruit wow: second matter encircle after first decay
+    if (fruitTime === null && decayCount >= 1) {
+      for (const m of intact) {
+        if (pointInPoly(m.x, m.y, stroke)) {
+          triggerFruit(m);
+          return true;
+        }
+      }
+    }
+
+    // First decay
+    if (decayTime === null || intact.length) {
+      for (const m of intact) {
+        if (pointInPoly(m.x, m.y, stroke)) {
+          if (decayTime === null) triggerDecay(m);
+          else triggerFruit(m);
+          return true;
+        }
+      }
+    }
+
+    // Join: encircle or stroke near unlinked germs after spore
+    if (sporeTime !== null && joinTime === null) {
+      const unlinked = germs.filter((g) => !g.linked);
+      if (unlinked.length && unlinked.every((g) => pointInPoly(g.x, g.y, stroke) || stroke.some((p) => Math.hypot(p.x - g.x, p.y - g.y) < 50))) {
+        triggerJoin();
+        return true;
+      }
+      // Also allow loop near germs with network drag end
+      if (unlinked.some((g) => Math.hypot(last.x - g.x, last.y - g.y) < 60) && len > ENC_MIN_LEN * 0.8) {
+        triggerJoin();
+        return true;
+      }
+    }
+    return false;
   };
 
   const spawnBigPatch = () => {
@@ -246,8 +595,180 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
       addTip(x, y, base + (i * Math.PI * 2) / k + (rnd() - 0.5) * 0.6, -1);
   };
 
+  const notePointer = () => {
+    idleT = 0;
+    showGhost = false;
+  };
+
+  const guidance = (): GuidanceInfo => {
+    const tip = tips[0] ?? (seed ? { x: seed.x, y: seed.y } : { x: W / 2, y: H / 2 });
+    const unlit = patches.filter((p) => !p.on && !p.big);
+    const nearest = unlit.length
+      ? unlit.reduce((b, p) =>
+          Math.hypot(p.x - tip.x, p.y - tip.y) < Math.hypot(b.x - tip.x, b.y - tip.y) ? p : b,
+        )
+      : null;
+    const big = patches.find((p) => p.big && !p.on);
+    const machine = matters.find((m) => m.kind === "machine" && !m.encircled);
+    const beetle = matters.find((m) => m.kind === "beetle" && !m.encircled);
+    const fruits = matters.filter((m) => m.kind === "fruit");
+    const germ = germs.find((g) => !g.linked);
+
+    if (!seed) {
+      return {
+        stepId: "plant",
+        label: "Klepni — zasaď zárodek",
+        target: { x: hovering ? hx : W / 2, y: hovering ? hy : H / 2, r: 18 },
+        target2: null,
+        ghost: "tap",
+        from: null,
+        to: { x: W / 2, y: H / 2, r: 18 },
+      };
+    }
+    if (firstAnchor === null) {
+      const t = nearest ?? { x: tip.x + 80, y: tip.y, r: 20 };
+      return {
+        stepId: "anchor1",
+        label: "Táhni hyfy ke skvrně",
+        target: { x: t.x, y: t.y, r: t.r ?? 20 },
+        target2: null,
+        ghost: "drag",
+        from: { x: tip.x, y: tip.y, r: 8 },
+        to: { x: t.x, y: t.y, r: t.r ?? 20 },
+      };
+    }
+    if ((midstep === null && patches.filter((p) => p.on && !p.big).length < 3) || midstep === null) {
+      if (nearest && patches.filter((p) => p.on && !p.big).length < 3) {
+        return {
+          stepId: "anchors",
+          label: "Kotvi další skvrny",
+          target: { x: nearest.x, y: nearest.y, r: nearest.r },
+          target2: null,
+          ghost: "drag",
+          from: { x: tip.x, y: tip.y, r: 8 },
+          to: { x: nearest.x, y: nearest.y, r: nearest.r },
+        };
+      }
+    }
+    if (firstFusion === null) {
+      return {
+        stepId: "fuse",
+        label: "Spoj hyfy do smyčky",
+        target: tips[0] ? { x: tips[0].x, y: tips[0].y, r: 16 } : null,
+        target2: tips[1] ? { x: tips[1].x, y: tips[1].y, r: 16 } : null,
+        ghost: "drag",
+        from: tips[0] ? { x: tips[0].x, y: tips[0].y, r: 8 } : null,
+        to: tips[1]
+          ? { x: tips[1].x, y: tips[1].y, r: 8 }
+          : seed
+            ? { x: seed.x + 60, y: seed.y, r: 8 }
+            : null,
+      };
+    }
+    if (firstWorkers === null) {
+      const hx0 = tips[0]?.x ?? seed.x;
+      const hy0 = tips[0]?.y ?? seed.y;
+      return {
+        stepId: "hold",
+        label: "Podrž — zahušť síť",
+        target: { x: hx0, y: hy0, r: 28 },
+        target2: null,
+        ghost: "hold",
+        from: null,
+        to: { x: hx0, y: hy0, r: 28 },
+      };
+    }
+    if (!bigAnchored) {
+      const t = big ?? nearest;
+      if (t) {
+        return {
+          stepId: "big",
+          label: "Dosáhni velké skvrny",
+          target: { x: t.x, y: t.y, r: t.r },
+          target2: null,
+          ghost: "drag",
+          from: { x: tip.x, y: tip.y, r: 8 },
+          to: { x: t.x, y: t.y, r: t.r },
+        };
+      }
+    }
+    if (decayTime === null && machine) {
+      return {
+        stepId: "decay",
+        label: "Zakroužkuj stroj",
+        target: { x: machine.x, y: machine.y, r: machine.r },
+        target2: null,
+        ghost: "encircle",
+        from: null,
+        to: { x: machine.x, y: machine.y, r: machine.r },
+      };
+    }
+    if (fruitTime === null && beetle) {
+      return {
+        stepId: "fruit",
+        label: "Zakroužkuj brouka",
+        target: { x: beetle.x, y: beetle.y, r: beetle.r },
+        target2: null,
+        ghost: "encircle",
+        from: null,
+        to: { x: beetle.x, y: beetle.y, r: beetle.r },
+      };
+    }
+    if (sporeTime === null && fruits.length) {
+      const mx = fruits.reduce((s, f) => s + f.x, 0) / fruits.length;
+      const my = fruits.reduce((s, f) => s + f.y, 0) / fruits.length;
+      return {
+        stepId: "spore",
+        label: "Zakroužkuj plodnice",
+        target: { x: fruits[0]!.x, y: fruits[0]!.y, r: fruits[0]!.r },
+        target2: fruits[1] ? { x: fruits[1].x, y: fruits[1].y, r: fruits[1].r } : null,
+        ghost: "encircle",
+        from: null,
+        to: { x: mx, y: my, r: 50 },
+      };
+    }
+    if (joinTime === null && germ) {
+      return {
+        stepId: "join",
+        label: "Doveď síť k zárodkům",
+        target: { x: germ.x, y: germ.y, r: 16 },
+        target2: null,
+        ghost: "drag",
+        from: { x: tip.x, y: tip.y, r: 8 },
+        to: { x: germ.x, y: germ.y, r: 16 },
+      };
+    }
+    return {
+      stepId: "watch",
+      label: hintTime ? "Sleduj okraj tmy" : "Sleduj síť",
+      target: foreignSeed ? { x: foreignSeed.x, y: foreignSeed.y, r: 24 } : null,
+      target2: null,
+      ghost: null,
+      from: null,
+      to: null,
+    };
+  };
+
+  const pollWows = (): WowEvent[] => {
+    emitWow("anchor", "První kotva", firstAnchor);
+    emitWow("midstep", "Třetí kotva", midstep);
+    emitWow("fusion", "Fúze", firstFusion);
+    emitWow("workers", "Cvrkot", firstWorkers);
+    emitWow("big", "Velká kotva", bigAnchorTime);
+    emitWow("decay", "Obrůstání", decayTime);
+    emitWow("fruit", "Plodnice", fruitTime);
+    emitWow("spore", "Výtrusný déšť", sporeTime);
+    emitWow("join", "Spojení sítí", joinTime);
+    emitWow("hint", "Cizí síť", hintTime);
+    if (!wowQueue.length) return [];
+    return wowQueue.splice(0, wowQueue.length);
+  };
+
   const pointerDown = (x: number, y: number) => {
-    if (!seed) plantSeed(x, y);
+    if (!seed) {
+      plantSeed(x, y);
+      bumpPerform("plant");
+    }
     dragging = true;
     holdT = 0;
     densify = false;
@@ -257,6 +778,10 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
     hy = y;
     guideW = 0;
     for (const t of tips) t.g = Math.hypot(t.x - x, t.y - y) < GUIDE_R;
+    if (bigAnchored) {
+      stroke = [{ x, y }];
+      strokeActive = true;
+    }
   };
 
   const pointerMove = (x: number, y: number) => {
@@ -277,9 +802,43 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
       dsx += dx * 0.4;
       dsy += dy * 0.4;
     }
+    if (strokeActive) {
+      const last = stroke[stroke.length - 1];
+      if (!last || Math.hypot(x - last.x, y - last.y) > 6) {
+        stroke.push({ x, y });
+        // Auto-close when near start after enough length
+        if (
+          stroke.length >= ENC_MIN_PTS &&
+          pathLength(stroke) >= ENC_MIN_LEN &&
+          Math.hypot(x - stroke[0]!.x, y - stroke[0]!.y) < ENC_CLOSE_R
+        ) {
+          tryEncircle();
+          stroke = [];
+          strokeActive = false;
+        }
+      }
+    }
   };
 
   const pointerUp = () => {
+    if (strokeActive && stroke.length >= ENC_MIN_PTS) {
+      // Soft-close: if near enough, snap
+      const first = stroke[0]!;
+      const last = stroke[stroke.length - 1]!;
+      if (Math.hypot(last.x - first.x, last.y - first.y) < ENC_CLOSE_R * 1.6) {
+        stroke.push({ x: first.x, y: first.y });
+      }
+      tryEncircle();
+    }
+    // Join by dragging network toward germs (after spore)
+    if (bigAnchored && sporeTime !== null && joinTime === null && seed) {
+      const unlinked = germs.filter((g) => !g.linked);
+      if (unlinked.some((g) => Math.hypot(hx - g.x, hy - g.y) < 70)) {
+        triggerJoin();
+      }
+    }
+    stroke = [];
+    strokeActive = false;
     dragging = false;
     holdT = 0;
     densify = false;
@@ -446,6 +1005,8 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
 
   const update = (dt: number) => {
     time += dt;
+    idleT += dt;
+    if (idleT >= IDLE_GHOST_S) showGhost = true;
     if (fusionCd > 0) fusionCd = Math.max(0, fusionCd - dt);
     if (!dragging) {
       guideW = Math.max(0, guideW - dt * 0.08);
@@ -457,9 +1018,25 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
         densify = true;
         densifyX = hx;
         densifyY = hy;
+        if (!prevDensify) bumpPerform("hold");
       }
     }
+    prevDensify = densify;
+    const anchorsNow = patches.filter((p) => p.on).length;
+    if (anchorsNow > prevAnchors) {
+      if (prevAnchors === 0) bumpPerform("anchor1");
+      else bumpPerform("anchors");
+      if (bigAnchored) bumpPerform("big");
+    }
+    prevAnchors = anchorsNow;
+    if (firstFusion !== null && (stepPerforms.get("fuse") ?? 0) === 0) bumpPerform("fuse");
+    if (firstWorkers !== null && (stepPerforms.get("hold") ?? 0) === 0) bumpPerform("hold");
+    if (decayTime !== null && (stepPerforms.get("decay") ?? 0) === 0) bumpPerform("decay");
+    if (fruitTime !== null && (stepPerforms.get("fruit") ?? 0) === 0) bumpPerform("fruit");
+    if (sporeTime !== null && (stepPerforms.get("spore") ?? 0) === 0) bumpPerform("spore");
+    if (joinTime !== null && (stepPerforms.get("join") ?? 0) === 0) bumpPerform("join");
     if (time >= BIG_APPEAR_T) spawnBigPatch();
+    if (bigAnchored) spawnMatters();
     if (camZoom !== camZoomTarget) {
       const k = 1 - Math.exp(-dt / (CAM_ZOOM_DUR * 0.45));
       camZoom += (camZoomTarget - camZoom) * k;
@@ -467,6 +1044,50 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
     }
     networkPulse = Math.max(0, networkPulse - dt * 0.55);
     networkBright = Math.max(0, networkBright - dt * 0.35);
+
+    // Matter decay animation
+    for (const m of matters) {
+      if (m.encircled && m.kind !== "fruit" && m.decay < 1) {
+        m.decay = Math.min(1, m.decay + dt * 0.35);
+      }
+    }
+    // Grains flow to seed
+    for (let i = grains.length - 1; i >= 0; i--) {
+      const g = grains[i]!;
+      g.life -= dt;
+      g.x += g.vx * dt;
+      g.y += g.vy * dt;
+      if (seed) {
+        g.vx += (seed.x - g.x) * dt * 1.2;
+        g.vy += (seed.y - g.y) * dt * 1.2;
+      }
+      if (g.life <= 0) grains.splice(i, 1);
+    }
+    for (let i = spores.length - 1; i >= 0; i--) {
+      const s = spores[i]!;
+      s.life -= dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.vx *= 0.98;
+      s.vy *= 0.98;
+      if (s.life <= 0) spores.splice(i, 1);
+    }
+    for (const g of germs) {
+      if (g.lit < 1) g.lit = Math.min(1, g.lit + dt * 0.4);
+    }
+    // Heartbeat after join
+    if (joinTime !== null) {
+      heartPhase += dt;
+      heartBeat = 0.55 + 0.45 * Math.sin((heartPhase / JOIN_PULSE_PERIOD) * Math.PI * 2);
+      networkBright = Math.max(networkBright, heartBeat * 0.35);
+    }
+    // Auto hint at ~10:00 after join (visual only — no new system)
+    if (joinTime !== null && hintTime === null && time >= 595) {
+      triggerHint();
+    }
+    if (foreignNet > 0) {
+      foreignNet = Math.max(0, foreignNet - dt / HINT_DUR);
+    }
 
     const next: Tip[] = [];
     for (const t of tips) {
@@ -494,6 +1115,19 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
       const inHold = densify && Math.hypot(t.x - densifyX, t.y - densifyY) < HOLD_R;
       if (inHold) {
         t.a += wrap(Math.atan2(densifyY - t.y, densifyX - t.x) - t.a) * HOLD_STEER * dt;
+      }
+      // Slide on intact matter surfaces (no pierce)
+      for (const mat of matters) {
+        if (mat.kind === "fruit" || mat.encircled) continue;
+        const d = Math.hypot(mat.x - t.x, mat.y - t.y);
+        const lim = mat.r * MATTER_SLIDE_R;
+        if (d < lim && d > 1) {
+          const out = Math.atan2(t.y - mat.y, t.x - mat.x);
+          t.a += wrap(out + Math.PI * 0.5 - t.a) * 2.2 * dt;
+          const push = (lim - d) * 0.5;
+          t.x += Math.cos(out) * push;
+          t.y += Math.sin(out) * push;
+        }
       }
       const m = 30;
       if (t.x < m || t.x > W - m || t.y < m || t.y > H - m) {
@@ -621,6 +1255,99 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
     }
 
     const bright = 1 + networkBright * 0.55;
+
+    // Matter shapes (grey) — machine / beetle / fruiting body
+    for (const m of matters) {
+      const breath = 0.5 + 0.5 * Math.sin(time * 1.1 + m.ph);
+      const alpha = m.kind === "fruit" ? 0.7 : 0.55 + 0.15 * breath;
+      const green = m.decay * 0.55;
+      const rr = m.r * (1 - m.decay * 0.45);
+      if (m.kind === "fruit") {
+        // Cap + stem (grey)
+        ctx.fillStyle = `rgba(150,150,148,${alpha})`;
+        ctx.beginPath();
+        ctx.ellipse(m.x, m.y - rr * 0.25, rr * 0.95, rr * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = `rgba(130,130,128,${alpha})`;
+        ctx.fillRect(m.x - 3, m.y - 2, 6, rr * 0.7);
+      } else if (m.kind === "machine") {
+        ctx.fillStyle = `rgba(${Math.floor(120 + green * 40)},${Math.floor(120 + green * 80)},${Math.floor(118 - green * 20)},${alpha * (1 - m.decay * 0.3)})`;
+        ctx.fillRect(m.x - rr * 0.7, m.y - rr * 0.45, rr * 1.4, rr * 0.9);
+        ctx.strokeStyle = `rgba(90,90,88,${0.45 * (1 - m.decay)})`;
+        ctx.lineWidth = 1.4;
+        ctx.strokeRect(m.x - rr * 0.7, m.y - rr * 0.45, rr * 1.4, rr * 0.9);
+        ctx.beginPath();
+        ctx.arc(m.x - rr * 0.25, m.y, rr * 0.22, 0, Math.PI * 2);
+        ctx.arc(m.x + rr * 0.3, m.y - rr * 0.1, rr * 0.18, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        // Beetle oval
+        ctx.fillStyle = `rgba(${Math.floor(110 + green * 50)},${Math.floor(110 + green * 70)},${Math.floor(108)},${alpha * (1 - m.decay * 0.3)})`;
+        ctx.beginPath();
+        ctx.ellipse(m.x, m.y, rr * 1.05, rr * 0.65, m.ph * 0.05, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(80,80,78,${0.4 * (1 - m.decay)})`;
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
+      }
+    }
+
+    // Distant germs
+    for (const g of germs) {
+      const r = 5 + g.lit * 3 + Math.sin(time * 2 + g.x) * 0.5;
+      const col = g.linked ? "200,210,190" : "160,160,155";
+      const grd = ctx.createRadialGradient(g.x, g.y, 0, g.x, g.y, r * 3);
+      grd.addColorStop(0, `rgba(${col},${0.35 + g.lit * 0.4})`);
+      grd.addColorStop(1, `rgba(${col},0)`);
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.arc(g.x, g.y, r * 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(${col},${0.7 + g.lit * 0.25})`;
+      ctx.beginPath();
+      ctx.arc(g.x, g.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Grains + spores
+    for (const g of grains) {
+      ctx.fillStyle = `rgba(180,220,160,${Math.min(1, g.life) * 0.85})`;
+      ctx.beginPath();
+      ctx.arc(g.x, g.y, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (const s of spores) {
+      ctx.fillStyle = `rgba(200,200,190,${Math.min(1, s.life) * 0.5})`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Encircle stroke preview
+    if (strokeActive && stroke.length > 1) {
+      ctx.strokeStyle = "rgba(200,210,190,0.35)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(stroke[0]!.x, stroke[0]!.y);
+      for (let i = 1; i < stroke.length; i++) ctx.lineTo(stroke[i]!.x, stroke[i]!.y);
+      ctx.stroke();
+    }
+
+    // Foreign network hint (visual only)
+    if (foreignNet > 0 && foreignSeed) {
+      const a = foreignNet * (0.35 + 0.25 * Math.sin(time * 7.3));
+      ctx.strokeStyle = `rgba(140,190,130,${a})`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      const fx = foreignSeed.x;
+      const fy = foreignSeed.y;
+      for (let i = 0; i < 5; i++) {
+        const ang = (i / 5) * Math.PI * 2 + time * 0.4;
+        ctx.moveTo(fx, fy);
+        ctx.lineTo(fx + Math.cos(ang) * (30 + i * 8), fy + Math.sin(ang) * (22 + i * 6));
+      }
+      ctx.stroke();
+    }
 
     // Patches — skvrna / kotva
     for (const p of patches) {
@@ -850,6 +1577,16 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
       ctx.arc(r.x, r.y, (r.big ? 10 : 5) + k * (r.big ? 50 : 26), 0, Math.PI * 2);
       ctx.stroke();
     }
+
+    // Diegetic guidance (always) — soft pulse + idle ghost hand
+    {
+      const g = guidance();
+      if (g.target) drawGuidePulse(ctx, g.target, time);
+      if (g.target2) drawGuidePulse(ctx, g.target2, time + 0.7, 0.35);
+      if (showGhost && g.ghost && canGhost(g.stepId)) {
+        drawGhostHand(ctx, g.ghost, g.from, g.to ?? g.target, time);
+      }
+    }
     ctx.restore();
   };
 
@@ -865,13 +1602,78 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
     firstWorkers,
     bigAnchored,
     bigAnchorTime,
+    decayTime,
+    fruitTime,
+    sporeTime,
+    joinTime,
+    hintTime,
   });
 
   const snapshot = (): WorldSnapshot => ({
     tips: tips.map((t) => ({ x: t.x, y: t.y })),
     patches: patches.map((p) => ({ x: p.x, y: p.y, on: p.on, big: p.big })),
     seed: seed ? { x: seed.x, y: seed.y } : null,
+    matters: matters.map((m) => ({
+      x: m.x,
+      y: m.y,
+      r: m.r,
+      kind: m.kind,
+      decay: m.decay,
+    })),
+    germs: germs.map((g) => ({ x: g.x, y: g.y, linked: g.linked })),
+    fruits: matters.filter((m) => m.kind === "fruit").map((m) => ({ x: m.x, y: m.y })),
   });
+
+  const bootstrapStart5 = () => {
+    // Post–big-anchor state at ~4:40 for ?start=5
+    plantSeed(W * 0.5, H * 0.5);
+    time = START5_T;
+    // Dense network stub
+    const base = rnd() * Math.PI * 2;
+    for (let i = 0; i < 6; i++) {
+      const a = base + (i * Math.PI * 2) / 6;
+      let x = seed!.x;
+      let y = seed!.y;
+      let prev = -1;
+      for (let s = 0; s < 28; s++) {
+        const nx = x + Math.cos(a + (rnd() - 0.5) * 0.4) * STEP;
+        const ny = y + Math.sin(a + (rnd() - 0.5) * 0.4) * STEP;
+        prev = pushSeg(x, y, nx, ny, prev, s > 20 ? 1 : 0);
+        x = nx;
+        y = ny;
+      }
+      addTip(x, y, a, prev);
+    }
+    // Light a few patches
+    for (let i = 0; i < Math.min(3, patches.length); i++) {
+      const p = patches[i]!;
+      if (p.big) continue;
+      p.on = true;
+      p.lit = 1;
+      const idx = pushSeg(seed!.x, seed!.y, p.x, p.y, -1, 1);
+      routes.push([idx]);
+      if (firstAnchor === null) firstAnchor = 35;
+    }
+    midWowDone = true;
+    midstep = 80;
+    firstFusion = 120;
+    firstWorkers = 220;
+    spawnBigPatch();
+    const big = patches.find((p) => p.big);
+    if (big) {
+      big.on = true;
+      big.lit = 1;
+      bigAnchored = true;
+      bigAnchorTime = START5_T - 5;
+      const idx = pushSeg(seed!.x, seed!.y, big.x, big.y, -1, 2);
+      routes.push([idx]);
+      camZoom = CAM_ZOOM_OUT;
+      camZoomTarget = CAM_ZOOM_OUT;
+      networkPulse = 0.6;
+    }
+    for (let i = 0; i < 40; i++) spawnWorker();
+    spawnMatters();
+  };
 
   const stressFill = (segCount: number, workerCount: number) => {
     if (!seed) plantSeed(W / 2, H / 2);
@@ -904,6 +1706,10 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
     atlas = a;
   };
 
+  if (opts.startAt !== undefined && opts.startAt >= START5_T - 5) {
+    bootstrapStart5();
+  }
+
   return {
     update,
     draw,
@@ -914,12 +1720,20 @@ export function createMyceliumWorld(opts: WorldOpts = {}): MyceliumWorld {
     snapshot,
     stressFill,
     setAtlas,
+    bootstrapStart5,
+    guidance,
+    pollWows,
+    notePointer,
   };
 }
 
 /** Mount mycelium sim on a canvas. Returns cleanup. */
-export function startMycelium(cv: HTMLCanvasElement): () => void {
-  const world = createMyceliumWorld();
+export function startMycelium(
+  cv: HTMLCanvasElement,
+  startAt?: number,
+  demo?: DemoControls,
+): () => void {
+  const world = createMyceliumWorld({ startAt });
   void loadMyceliumAtlas().then((a) => world.setAtlas(a));
-  return mountCanvas(cv, world, W, H);
+  return mountCanvas(cv, world, W, H, { demo });
 }
