@@ -1,1 +1,1 @@
-# PR previews
+# PR previews live under pr-preview/pr-<N>/
