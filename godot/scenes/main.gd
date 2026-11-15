@@ -30,7 +30,29 @@ var _drag: bool = false
 var _use_2x: bool = false
 
 
+func _resolve_rod() -> String:
+	var args = OS.get_cmdline_user_args()
+	for a in args:
+		var s := str(a)
+		if s.begins_with("--rod="):
+			return s.substr(6).to_lower()
+		if s.begins_with("rod="):
+			return s.substr(4).to_lower()
+	if OS.has_feature("web") and Engine.has_singleton("JavaScriptBridge"):
+		var js = Engine.get_singleton("JavaScriptBridge")
+		var q: String = str(js.eval("window.location.search || ''"))
+		if "rod=apis" in q.to_lower():
+			return "apis"
+		if "rod=mycelium" in q.to_lower():
+			return "mycelium"
+	return "mycelium"
+
+
 func _ready() -> void:
+	var rod := _resolve_rod()
+	if rod == "apis":
+		get_tree().call_deferred("change_scene_to_file", "res://scenes/apis_main.tscn")
+		return
 	var args = OS.get_cmdline_user_args()
 	if "--sim" in args or "sim" in args:
 		_run_sim_and_quit()

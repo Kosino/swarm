@@ -1,4 +1,4 @@
-name: Godot Mycelium
+name: Godot SWARM
 
 on:
   pull_request:
@@ -50,20 +50,30 @@ jobs:
           cp /tmp/godot-templates/templates/* "$HOME/.local/share/godot/export_templates/4.3.stable/"
           chmod +x "$HOME/godot"/Godot_v4.3-stable_linux.x86_64
 
-      - name: Headless medians
+      - name: Headless medians (Mycelium + Apis)
         run: |
           GODOT="$HOME/godot/Godot_v4.3-stable_linux.x86_64"
           "$GODOT" --headless --path godot --import
-          "$GODOT" --headless --path godot --script res://mycelium/headless.gd | tee godot-sim.json
+          "$GODOT" --headless --path godot --script res://mycelium/headless.gd | tee godot-sim-mycelium.json
           python3 - <<'PY'
           import json,sys
-          # first top-level JSON object in Godot stdout (pretty-printed may nest braces)
-          text=open("godot-sim.json").read()
+          text=open("godot-sim-mycelium.json").read()
           start=text.find("{")
           if start < 0:
-              sys.exit("no JSON in godot-sim.json")
+              sys.exit("no JSON in godot-sim-mycelium.json")
           data=json.loads(text[start:])
-          print("medians", data.get("medians"))
+          print("mycelium medians", data.get("medians"))
+          sys.exit(0 if data.get("ok") else 1)
+          PY
+          "$GODOT" --headless --path godot --script res://apis/headless.gd | tee godot-sim-apis.json
+          python3 - <<'PY'
+          import json,sys
+          text=open("godot-sim-apis.json").read()
+          start=text.find("{")
+          if start < 0:
+              sys.exit("no JSON in godot-sim-apis.json")
+          data=json.loads(text[start:])
+          print("apis medians", data.get("medians"))
           sys.exit(0 if data.get("ok") else 1)
           PY
 
@@ -101,13 +111,13 @@ jobs:
           GODOT="$HOME/godot/Godot_v4.3-stable_linux.x86_64"
           mkdir -p godot/export/windows
           "$GODOT" --headless --path godot --import
-          "$GODOT" --headless --path godot --export-release "Windows Desktop" "export/windows/SWARM_Mycelium.exe"
+          "$GODOT" --headless --path godot --export-release "Windows Desktop" "export/windows/SWARM.exe"
           ls -la godot/export/windows/
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: swarm-mycelium-windows
+          name: swarm-windows
           path: godot/export/windows/
           if-no-files-found: error
 
@@ -151,6 +161,6 @@ jobs:
       - name: Upload Web artifact
         uses: actions/upload-artifact@v4
         with:
-          name: swarm-mycelium-web
+          name: swarm-web
           path: godot/export/web/
           if-no-files-found: error

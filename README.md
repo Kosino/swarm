@@ -11,17 +11,19 @@ npm run build    # dist/
 Stack: Vite + TypeScript + HTML5 canvas. Params: `src/mycelium/config.ts`.
 Docs: `docs/gdd.md`, `docs/zadani/`.
 
-## Godot (Build #7)
+## Godot (Build #7–#8)
 
-Mycelium isometric 0–10 min lives in `godot/`.
+Mycelium + Apis isometric 0–10 min live in `godot/`.
 
 ```bash
 # Play (Godot 4.3+)
 godot --path godot
+godot --path godot -- --rod=apis
 
-# Headless acceptance (12 seeds)
+# Headless acceptance (12 seeds each)
 godot --headless --path godot --script res://mycelium/headless.gd
+godot --headless --path godot --script res://apis/headless.gd
 ```
 
-Web export deploys to GitHub Pages at `/godot/`. Windows build is a CI artifact (`swarm-mycelium-windows`).
+Web export: `/godot/` (Mycelium) and `/godot/?rod=apis`. Windows CI artifact: `swarm-windows`.
 
