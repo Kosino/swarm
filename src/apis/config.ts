@@ -75,6 +75,12 @@ export const TRAIL_MAX_SPEED = 95;
 export const TRAIL_MIN_LEN = 160;
 /** Min samples on trail path. */
 export const TRAIL_MIN_PTS = 12;
+/** Connect magnetic snap base (logical px; × DPR, larger on touch). */
+export const CONNECT_SNAP = 40;
+/** Trail / join auto-finish when end within this of target. */
+export const TRAIL_FINISH_PX = 60;
+/** Meadow tile size for seamless louka art. */
+export const MEADOW_TILE = 64;
 /** Auto-build spacing along trail (hex steps approx). */
 export const TRAIL_BUILD_SPACING = 38;
 /** Chambers built per second along active trail. */

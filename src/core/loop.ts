@@ -2,13 +2,14 @@
 
 import type { DemoControls } from "./demo";
 import type { GuidanceInfo, WowEvent } from "./guidance";
+import type { PointerMeta } from "./gestures";
 
 export type GameWorld = {
   update: (dt: number) => void;
   draw: (ctx: CanvasRenderingContext2D, dpr: number) => void;
-  pointerDown: (x: number, y: number) => void;
-  pointerMove: (x: number, y: number) => void;
-  pointerUp: () => void;
+  pointerDown: (x: number, y: number, meta?: PointerMeta) => void;
+  pointerMove: (x: number, y: number, meta?: PointerMeta) => void;
+  pointerUp: (meta?: PointerMeta) => void;
   /** Optional: sim clock + wow metrics for demo HUD. */
   metrics?: () => { time: number; [k: string]: unknown };
   /** Optional: diegetic + demo guidance. */
@@ -42,19 +43,29 @@ export function mountCanvas(
     return [((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H];
   };
 
+  const metaOf = (e: PointerEvent): PointerMeta => ({
+    dpr,
+    touch: e.pointerType === "touch" || e.pointerType === "pen",
+  });
+
+  let lastMeta: PointerMeta = { dpr, touch: false };
+
   const onDown = (e: PointerEvent) => {
     const [x, y] = toWorld(e);
+    lastMeta = metaOf(e);
     cv.setPointerCapture(e.pointerId);
     world.notePointer?.();
-    world.pointerDown(x, y);
+    world.pointerDown(x, y, lastMeta);
   };
   const onMove = (e: PointerEvent) => {
     const [x, y] = toWorld(e);
-    world.pointerMove(x, y);
+    lastMeta = metaOf(e);
+    world.pointerMove(x, y, lastMeta);
   };
-  const onUp = () => {
+  const onUp = (e?: PointerEvent) => {
+    if (e) lastMeta = metaOf(e);
     world.notePointer?.();
-    world.pointerUp();
+    world.pointerUp(lastMeta);
   };
 
   cv.addEventListener("pointerdown", onDown);

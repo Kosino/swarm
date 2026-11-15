@@ -22,6 +22,8 @@ export type Flower = {
   tree?: boolean;
   /** Soft pulse when idle worker twitches toward it. */
   hint: number;
+  /** Atlas variant: kvetina_a / b / c. */
+  variant?: "a" | "b" | "c";
 };
 
 export type WorkerBee = {

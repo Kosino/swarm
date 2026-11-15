@@ -17,5 +17,5 @@
     "noUncheckedSideEffectImports": true
   },
   "include": ["src"],
-  "exclude": ["src/mycelium/headless.ts", "src/apis/headless.ts"]
+  "exclude": ["src/mycelium/headless.ts", "src/apis/headless.ts", "src/core/gestureSim.ts"]
 }
