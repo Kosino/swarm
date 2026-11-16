@@ -63,7 +63,7 @@ func _run_playthrough(seed_num: int) -> Dictionary:
 	var world := ApisWorld.new({"silent": true, "rng": rng})
 	var notes: Array = []
 	var dt: float = 1.0 / 30.0
-	var max_t := 620.0
+	var max_t := 920.0
 	var cx: float = float(C.W) * 0.5
 	var cy: float = float(C.H) * 0.48
 	var planted := false
@@ -261,6 +261,72 @@ func _run_playthrough(seed_num: int) -> Dictionary:
 				mid_trail_at = world.metrics().time
 				sim_t = world.metrics().time
 				continue
+			## Age 3 trails / hold after dusk hint.
+			if m.hintTime != null and m.winterTime == null and m.time >= 662.0:
+				var pts_w: Array = []
+				var rw := 100.0
+				for i8 in range(22):
+					var aw: float = -0.5 + (float(i8) / 21.0) * 2.6
+					pts_w.append({"x": hive2.x + cos(aw) * rw, "y": hive2.y + sin(aw) * rw * 0.85})
+				_slow_trail(world, pts_w, dt)
+				mid_trail_at = world.metrics().time
+				sim_t = world.metrics().time
+				continue
+			if m.winterTime != null and m.brassTime == null and m.time >= 737.0:
+				var dest_b = snap.get("rustMachine")
+				if dest_b == null:
+					dest_b = {"x": hive2.x + 220.0, "y": hive2.y - 40.0}
+				var pts_b: Array = []
+				for i9 in range(23):
+					var tb: float = float(i9) / 22.0
+					pts_b.append({
+						"x": hive2.x + (dest_b.x - hive2.x) * tb,
+						"y": hive2.y + (dest_b.y - hive2.y) * tb,
+					})
+				_slow_trail(world, pts_b, dt)
+				mid_trail_at = world.metrics().time
+				sim_t = world.metrics().time
+				continue
+			if m.brassTime != null and m.royalTime == null and m.time >= 812.0:
+				world.pointer_down(cx, cy)
+				for _h in range(24):
+					world.pointer_move(cx + 0.05, cy)
+					world.update(dt)
+				world.pointer_up()
+				mid_trail_at = world.metrics().time
+				sim_t = world.metrics().time
+				continue
+			if m.royalTime != null and m.mvpEndTime == null:
+				## Wait through seeds + orbit end with small jumps.
+				var jump_a := 0.0
+				if m.seedsTime == null and m.time < 878.0:
+					jump_a = minf(878.0 - m.time, 4.0)
+				elif m.mvpEndTime == null and m.seedsTime != null and m.time < 898.0:
+					jump_a = minf(898.0 - m.time, 4.0)
+				if jump_a > 0.0:
+					world.update(jump_a)
+					sim_t = world.metrics().time
+					continue
+
+		## Fast-forward quiet stretches before Age 3 gates.
+		if m.hintTime != null and m.winterTime == null and m.time < 660.0:
+			var jf := minf(660.0 - m.time, 4.0)
+			if jf > 0.0:
+				world.update(jf)
+				sim_t = world.metrics().time
+				continue
+		if m.winterTime != null and m.brassTime == null and m.time < 735.0:
+			var jf2 := minf(735.0 - m.time, 4.0)
+			if jf2 > 0.0:
+				world.update(jf2)
+				sim_t = world.metrics().time
+				continue
+		if m.brassTime != null and m.royalTime == null and m.time < 810.0:
+			var jf3 := minf(810.0 - m.time, 4.0)
+			if jf3 > 0.0:
+				world.update(jf3)
+				sim_t = world.metrics().time
+				continue
 
 		world.update(dt)
 		sim_t = world.metrics().time
@@ -336,32 +402,45 @@ func run() -> Dictionary:
 		"swarm": _median(_nums(results.map(func(m): return m.swarmTime))),
 		"join": _median(_nums(results.map(func(m): return m.joinTime))),
 		"hint": _median(_nums(results.map(func(m): return m.hintTime))),
+		"winter": _median(_nums(results.map(func(m): return m.winterTime))),
+		"brass": _median(_nums(results.map(func(m): return m.brassTime))),
+		"royal": _median(_nums(results.map(func(m): return m.royalTime))),
+		"seeds": _median(_nums(results.map(func(m): return m.seedsTime))),
+		"mvpEnd": _median(_nums(results.map(func(m): return m.mvpEndTime))),
 	}
 
-	# Web medians (assignment): 0:34 / 1:16 / 2:07 / 3:22 / 4:34 / 5:46 / 7:07 / 8:14 / 9:17 / 9:55
+	# 0–10 targets + Age 3 11:10 / 12:25 / 13:40 / 14:40 / 15:00
 	var targets := {
 		"firstWorker": 34.1, "firstNectar": 75.7, "ring": 126.9, "traffic": 201.6,
 		"bigFlight": 273.6, "trail": 345.6, "floor2": 426.6, "swarm": 493.9,
 		"join": 557.4, "hint": 595.0,
+		"winter": 670.0, "brass": 745.0, "royal": 820.0, "seeds": 880.0, "mvpEnd": 900.0,
 	}
 	var early_gaps: Array = []
 	var mid_gaps: Array = []
+	var late_gaps: Array = []
 	var all_complete := true
 	for m in results:
 		if (
 			m.firstWorker == null or m.firstNectar == null or m.ringTime == null
 			or m.trafficTime == null or m.bigFlightTime == null or m.trailTime == null
 			or m.floor2Time == null or m.swarmTime == null or m.joinTime == null or m.hintTime == null
+			or m.winterTime == null or m.brassTime == null or m.royalTime == null
+			or m.seedsTime == null or m.mvpEndTime == null
 		):
 			all_complete = false
 		var eg = _max_gap([m.firstWorker, m.firstNectar, m.ringTime, m.trafficTime, m.bigFlightTime])
 		var mg = _max_gap([m.trailTime, m.floor2Time, m.swarmTime, m.joinTime, m.hintTime])
+		var lg = _max_gap([m.winterTime, m.brassTime, m.royalTime, m.seedsTime, m.mvpEndTime])
 		if eg != null:
 			early_gaps.append(eg)
 		if mg != null:
 			mid_gaps.append(mg)
+		if lg != null:
+			late_gaps.append(lg)
 	var med_early_gap = _median(early_gaps)
 	var med_mid_gap = _median(mid_gaps)
+	var med_late_gap = _median(late_gaps)
 
 	var ok := all_complete and fps >= 60.0
 	for k in targets.keys():
@@ -371,6 +450,8 @@ func run() -> Dictionary:
 	if med_early_gap == null or float(med_early_gap) > 90.0:
 		ok = false
 	if med_mid_gap == null or float(med_mid_gap) > 90.0:
+		ok = false
+	if med_late_gap == null or float(med_late_gap) > 90.0:
 		ok = false
 
 	return {
@@ -386,8 +467,14 @@ func run() -> Dictionary:
 			"swarm": _fmt(med.swarm),
 			"join": _fmt(med.join),
 			"hint": _fmt(med.hint),
+			"winter": _fmt(med.winter),
+			"brass": _fmt(med.brass),
+			"royal": _fmt(med.royal),
+			"seeds": _fmt(med.seeds),
+			"mvpEnd": _fmt(med.mvpEnd),
 			"earlyGapSec": med_early_gap,
 			"midGapSec": med_mid_gap,
+			"lateGapSec": med_late_gap,
 		},
 		"fps": int(round(fps)),
 		"updateMs": snappedf(update_ms, 0.001),

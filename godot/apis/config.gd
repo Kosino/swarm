@@ -68,8 +68,18 @@ const WOW_FLOOR2 := 420.0
 const WOW_SWARM := 495.0
 const WOW_JOIN := 560.0
 const WOW_HINT := 600.0
+## Age 3 / minutes 10–15 (Build #9)
+const WOW_WINTER := 670.0
+const WOW_BRASS := 745.0
+const WOW_ROYAL := 820.0
+const WOW_SEEDS := 880.0
+const WOW_END := 900.0
+const START10_T := 600.0
 const MEADOW2_DIST := 380.0
 const HINT_DUR := 4.5
+const HOLD_AGE3_S := 0.55
+const RUST_MACHINE_DIST := 340.0
+const RUST_MACHINE_R := 42.0
 
 const IDLE_GHOST_S := 8.0
 const MAX_GHOST_PERFORMS := 2

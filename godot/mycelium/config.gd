@@ -46,9 +46,20 @@ const WOW_FRUIT := 420.0
 const WOW_SPORE := 495.0
 const WOW_JOIN := 560.0
 const WOW_HINT := 600.0
+## Age 3 / minutes 10–15 (Build #9)
+const WOW_QUARANTINE := 670.0
+const WOW_SKELETON := 745.0
+const WOW_GIANT := 820.0
+const WOW_SEEDS := 880.0
+const WOW_END := 900.0
+const START10_T := 600.0
 const SPORE_GERMS := 4
 const JOIN_PULSE_PERIOD := 1.85
 const HINT_DUR := 3.2
+const INFECT_R := 48.0
+const SKELETON_R := 58.0
+const GIANT_FRUIT_R := 72.0
+const HOLD_AGE3_S := 0.55
 
 const SOIL_TILE := 64
 const IDLE_GHOST_S := 8.0

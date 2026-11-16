@@ -28,6 +28,8 @@ var zoom_target: float = 1.0
 var atlas: Dictionary = {}
 var _drag: bool = false
 var _use_2x: bool = false
+var _orbit_done: bool = false
+var _other_planet_a: float = 0.0
 
 
 func _resolve_rod() -> String:
@@ -49,10 +51,15 @@ func _resolve_rod() -> String:
 
 
 func _ready() -> void:
-	var rod := _resolve_rod()
-	if rod == "apis":
-		get_tree().call_deferred("change_scene_to_file", "res://scenes/apis_main.tscn")
-		return
+	## Only auto-route to Apis when this scene is the entry (CLI/web ?rod=), not from menu.
+	var from_menu := get_tree().has_meta("swarm_from_menu") and bool(get_tree().get_meta("swarm_from_menu"))
+	if not from_menu:
+		var rod := _resolve_rod()
+		if rod == "apis":
+			get_tree().call_deferred("change_scene_to_file", "res://scenes/apis_main.tscn")
+			return
+	else:
+		get_tree().set_meta("swarm_from_menu", false)
 	var args = OS.get_cmdline_user_args()
 	if "--sim" in args or "sim" in args:
 		_run_sim_and_quit()
@@ -64,7 +71,10 @@ func _ready() -> void:
 
 	_use_2x = DisplayServer.screen_get_scale() >= 1.5
 	atlas = Atlas.load_all(_use_2x)
-	world = MyceliumWorld.new({"silent": true, "seed": 42})
+	var opts := {"silent": true, "seed": 42}
+	if "--start=10" in args or "start=10" in args:
+		opts["startAt"] = 600.0
+	world = MyceliumWorld.new(opts)
 	hud.visible = demo_on
 	camera.position = Iso.world_to_iso(float(C.W) * 0.5, float(C.H) * 0.5)
 	zoom_target = 1.0
@@ -84,17 +94,26 @@ func _process(dt: float) -> void:
 		return
 	world.update(dt * speed_mul)
 
-	var move := Vector2.ZERO
-	if Input.is_action_pressed("cam_left"):
-		move.x -= 1
-	if Input.is_action_pressed("cam_right"):
-		move.x += 1
-	if Input.is_action_pressed("cam_up"):
-		move.y -= 1
-	if Input.is_action_pressed("cam_down"):
-		move.y += 1
-	if move != Vector2.ZERO:
-		camera.position += move.normalized() * 420.0 * dt / maxf(camera.zoom.x, 0.2)
+	if world.mvp_end_time != null:
+		_other_planet_a = minf(1.0, _other_planet_a + dt * 0.35)
+		if world.orbit_t > 4.5 and not _orbit_done:
+			_orbit_done = true
+			get_tree().set_meta("swarm_grown_mycelium", true)
+			get_tree().set_meta("swarm_return_choose", true)
+			get_tree().change_scene_to_file("res://scenes/menu.tscn")
+			return
+	else:
+		var move := Vector2.ZERO
+		if Input.is_action_pressed("cam_left"):
+			move.x -= 1
+		if Input.is_action_pressed("cam_right"):
+			move.x += 1
+		if Input.is_action_pressed("cam_up"):
+			move.y -= 1
+		if Input.is_action_pressed("cam_down"):
+			move.y += 1
+		if move != Vector2.ZERO:
+			camera.position += move.normalized() * 420.0 * dt / maxf(camera.zoom.x, 0.2)
 
 	var z: float = zoom_target * world.cam_zoom
 	camera.zoom = camera.zoom.lerp(Vector2(z, z), 1.0 - exp(-dt * 3.0))
@@ -277,6 +296,9 @@ func _draw_hyphae() -> void:
 
 
 func _draw_entities() -> void:
+	var dim: float = 1.0
+	if world.dim_all > 0.0:
+		dim = maxf(0.15, 1.0 - world.dim_all * 0.85)
 	for p in world.patches:
 		var name := "myc_iso_kotva" if p.on else "myc_iso_skvrna"
 		var sc := 0.55 if p.get("big", false) else 0.4
@@ -341,6 +363,32 @@ func _draw_entities() -> void:
 	for m in world.matters:
 		if m.encircled and m.kind != "fruit" and atlas.has("myc_iso_puda_vlhka"):
 			_blit("myc_iso_puda_vlhka", m.x, m.y, 0.4 if not _use_2x else 0.2, Color(1, 1, 1, 0.35 * m.decay))
+
+	## Age 3 overlays
+	if world.infected != null:
+		var inf = world.infected
+		var ig := Color(0.45, 0.55, 0.4, 0.35 + inf.grey * 0.4) if not inf.dead else Color(0.35, 0.32, 0.28, 0.25)
+		_draw_box_fallback(inf.x, inf.y, inf.r * 0.55, ig)
+	if world.skeleton != null:
+		var sk = world.skeleton
+		var alpha: float = 0.75 * (1.0 - float(sk.decay) * 0.5)
+		_draw_box_fallback(sk.x, sk.y, sk.r * 0.6, Color(0.55, 0.52, 0.48, alpha))
+	if world.giant_fruit != null:
+		var gf = world.giant_fruit
+		var gr: float = gf.r * (0.35 + gf.grow * 0.65)
+		_draw_box_fallback(gf.x, gf.y, gr * 0.55, Color(0.7, 0.72, 0.62, 0.85 * dim))
+	if world.seed_capsule != null:
+		var sc = world.seed_capsule
+		var glow: float = 0.6 + 0.4 * abs(sin(world.time * 3.2))
+		draw_circle(Iso.world_to_iso(sc.x, sc.y), 7.0 + sc.pulse * 4.0, Color(0.95, 0.98, 0.7, glow))
+	if world.mvp_end_time != null:
+		## Distant warm Apis planet glitter (no interaction).
+		var vp := get_viewport_rect().size
+		var p := Vector2(vp.x * 0.78, vp.y * 0.22)
+		var tw: float = 0.4 + 0.6 * abs(sin(world.time * 2.5))
+		draw_circle(p, 5.0, Color(0.95, 0.75, 0.3, _other_planet_a * tw))
+		draw_arc(p, 10.0, 0, TAU, 20, Color(0.95, 0.7, 0.25, _other_planet_a * 0.45), 1.2)
+		draw_string(ThemeDB.fallback_font, Vector2(vp.x * 0.5 - 40, vp.y * 0.12), "SWARM", HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.9, 0.92, 0.88, minf(1.0, world.orbit_t * 0.25)))
 
 
 func _draw_box_fallback(wx: float, wy: float, half: float, col: Color) -> void:

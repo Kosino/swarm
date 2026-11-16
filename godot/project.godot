@@ -4,8 +4,8 @@ config_version=5
 [application]
 
 config/name="SWARM"
-config/description="SWARM Mycelium + Apis isometric builder — Godot 4.3 port"
-run/main_scene="res://scenes/main.tscn"
+config/description="SWARM Mycelium + Apis isometric builder — Godot 4.3 port (Build #9 menu + Age 3)"
+run/main_scene="res://scenes/menu.tscn"
 config/features=PackedStringArray("4.3", "Forward Plus")
 config/icon="res://icon.png"
 

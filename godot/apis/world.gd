@@ -76,11 +76,25 @@ var floor2_time = null
 var swarm_time = null
 var join_time = null
 var hint_time = null
+var winter_time = null
+var brass_time = null
+var royal_time = null
+var seeds_time = null
+var mvp_end_time = null
 var dusk: float = 0.0
 var rust_chamber = null
 var floor2: bool = false
+var floor3: bool = false
 var meadow_bloom: float = 0.0
 var hive_pulse_sync: float = 0.0
+var cold: float = 0.0
+var rust_machine = null ## {x,y,r,looted}
+var brass_sheen: float = 0.0
+var royal_cell = null ## {x,y,glow,capped,queen}
+var age3_hold_t: float = 0.0
+var orbit_t: float = 0.0
+var dim_all: float = 0.0
+var worker_slow: float = 1.0
 
 var idle_t: float = 0.0
 var show_ghost: bool = false
@@ -112,8 +126,12 @@ func _init(opts: Dictionary = {}) -> void:
 	meadow_rows = int(ceil(float(C.H) / float(C.MEADOW_TILE))) + 1
 	for i in range(meadow_cols * meadow_rows):
 		meadow_names.append(MEADOW_VARS[i % MEADOW_VARS.size()])
-	if opts.has("startAt") and float(opts.startAt) >= C.START5_T - 5.0:
-		bootstrap_start5()
+	if opts.has("startAt"):
+		var at: float = float(opts.startAt)
+		if at >= C.START10_T - 5.0:
+			bootstrap_start10()
+		elif at >= C.START5_T - 5.0:
+			bootstrap_start5()
 
 
 func _rnd() -> float:
@@ -528,6 +546,15 @@ func _classify_trail(pts: Array) -> String:
 			return "join"
 		if swarm_time == null:
 			return "highway"
+	## Age 3: winter cluster (loop near hive) then brass trail to rust machine.
+	if hint_time != null and winter_time == null and da > 1.0 and mean_dist < 170.0:
+		return "winter"
+	if (
+		winter_time != null and brass_time == null and rust_machine != null
+		and G.hypot(last.x - rust_machine.x, last.y - rust_machine.y) < maxf(100.0, C.TRAIL_FINISH_PX * 1.6)
+		and length >= C.TRAIL_MIN_LEN * 0.75
+	):
+		return "brass"
 	return "meadow"
 
 
@@ -545,6 +572,8 @@ func _resolve_connect_snap(x: float, y: float):
 		return {"x": second_hive.x, "y": second_hive.y, "kind": "hive"}
 	if meadow2 != null and G.hypot(x - meadow2.x, y - meadow2.y) < maxf(snap, C.TRAIL_FINISH_PX):
 		return {"x": meadow2.x, "y": meadow2.y, "kind": "meadow"}
+	if rust_machine != null and G.hypot(x - rust_machine.x, y - rust_machine.y) < maxf(snap, C.TRAIL_FINISH_PX * 1.2):
+		return {"x": rust_machine.x, "y": rust_machine.y, "kind": "machine"}
 	if G.hypot(x - hc.x, y - hc.y) < snap:
 		return {"x": hc.x, "y": hc.y, "kind": "hive"}
 	return null
@@ -697,7 +726,24 @@ func _activate_trail(pts: Array) -> bool:
 				"ph": _rnd() * 6.0, "bloom": 0.7, "visits": 0, "hint": 0.0,
 				"variant": FLOWER_VARS[flowers.size() % 3], "tree": false,
 			})
+	elif kind == "winter" and winter_time == null:
+		_trigger_winter()
+	elif kind == "brass" and brass_time == null:
+		_trigger_brass()
 	return true
+
+
+func _spawn_rust_machine() -> void:
+	if rust_machine != null:
+		return
+	var ang: float = PI * 0.15 + _rnd() * 0.4
+	if meadow2 != null:
+		ang = atan2(meadow2.y - cy, meadow2.x - cx) + PI * 0.35
+	var x: float = cx + cos(ang) * C.RUST_MACHINE_DIST
+	var y: float = cy + sin(ang) * C.RUST_MACHINE_DIST * 0.8
+	x = clampf(x, 70.0, float(C.W) - 70.0)
+	y = clampf(y, 60.0, float(C.H) - 60.0)
+	rust_machine = {"x": x, "y": y, "r": C.RUST_MACHINE_R, "looted": false}
 
 
 func _trigger_dusk_hint() -> void:
@@ -705,6 +751,8 @@ func _trigger_dusk_hint() -> void:
 		return
 	hint_time = time
 	dusk = 1.0
+	cold = 0.4
+	worker_slow = 0.55
 	var far = null
 	var bd := -1.0
 	for ch in chambers.values():
@@ -717,6 +765,78 @@ func _trigger_dusk_hint() -> void:
 			far = ch
 	if far != null:
 		rust_chamber = _hex_key(far.q, far.r)
+	_spawn_rust_machine()
+
+
+func _trigger_winter() -> void:
+	if winter_time != null:
+		return
+	winter_time = time
+	_bump_perform("winter")
+	cold = 0.0
+	worker_slow = 1.0
+	dusk = maxf(0.0, dusk - 0.5)
+	core_pulse = 1.0
+	hive_pulse_sync = 1.0
+	## Cluster workers into a warm ball near hive.
+	for w in workers:
+		if _rnd() < 0.65:
+			w.flower = -3
+			w.t = _rnd()
+	meadow_bloom = maxf(meadow_bloom, 0.6)
+
+
+func _trigger_brass() -> void:
+	if brass_time != null or rust_machine == null:
+		return
+	brass_time = time
+	_bump_perform("brass")
+	rust_machine.looted = true
+	brass_sheen = 1.0
+	core_pulse = 1.0
+	for ch in chambers.values():
+		if ch.grow >= 1.0:
+			ch.amber = minf(1.0, ch.amber + 0.35)
+			ch.pulse = 1.0
+	meadow_bloom = 1.0
+	for f in flowers:
+		if not f.get("tree", false):
+			f.bloom = minf(1.0, f.bloom + 0.4)
+
+
+func _trigger_royal() -> void:
+	if royal_time != null:
+		return
+	royal_time = time
+	_bump_perform("royal")
+	floor3 = true
+	hive_scale = maxf(hive_scale, 1.55)
+	core_pulse = 1.0
+	hive_pulse_sync = 1.0
+	royal_cell = {"x": cx, "y": cy - 18.0, "glow": 0.6, "capped": false, "queen": 0.0}
+	if second_hive != null:
+		second_hive.pulse = 1.0
+
+
+func _trigger_seeds_hint() -> void:
+	if seeds_time != null or royal_cell == null:
+		return
+	seeds_time = time
+	dim_all = 1.0
+	royal_cell.capped = true
+	royal_cell.glow = 1.0
+	royal_cell.queen = 0.4
+
+
+func _trigger_mvp_end() -> void:
+	if mvp_end_time != null:
+		return
+	mvp_end_time = time
+	orbit_t = 0.01
+	cam_zoom_target = 0.22
+	if royal_cell != null:
+		royal_cell.queen = 1.0
+		royal_cell.glow = 1.0
 
 
 func update(dt: float) -> void:
@@ -791,11 +911,18 @@ func update(dt: float) -> void:
 		w.phase += dt
 		if w.twitch > 0.0:
 			w.twitch = maxf(0.0, w.twitch - dt)
+		if w.flower == -3:
+			## Winter cluster — orbit as a warm ball near the hive.
+			var angw: float = w.phase * 2.4 + w.phase
+			var rr: float = 18.0 + 8.0 * sin(time * 1.5 + w.phase)
+			w.x = hc.x + cos(angw) * rr
+			w.y = hc.y + sin(angw) * rr * 0.85
+			continue
 		if w.flower == -2 and second_hive != null:
 			var tx: float = second_hive.x
 			var ty: float = second_hive.y
 			var dist: float = G.hypot(tx - hc.x, ty - hc.y)
-			w.t += (C.WORKER_SPEED * dt) / maxf(40.0, dist)
+			w.t += (C.WORKER_SPEED * worker_slow * dt) / maxf(40.0, dist)
 			if w.outbound:
 				if w.t >= 1.0:
 					w.t = 0.0
@@ -824,7 +951,7 @@ func update(dt: float) -> void:
 			w.flower = -1
 			continue
 		var f = flowers[w.flower]
-		var spd: float = C.WORKER_SPEED if w.outbound else C.WORKER_SPEED_RETURN
+		var spd: float = (C.WORKER_SPEED if w.outbound else C.WORKER_SPEED_RETURN) * worker_slow
 		var dist2: float = G.hypot(f.x - hc.x, f.y - hc.y)
 		var travel: float = maxf(40.0, dist2)
 		w.t += (spd * dt) / travel
@@ -931,8 +1058,37 @@ func update(dt: float) -> void:
 		meadow_bloom = maxf(0.4, meadow_bloom - dt * 0.02)
 	if join_time != null and hint_time == null and time >= 595.0:
 		_trigger_dusk_hint()
-	if dusk > 0.0:
+	if dusk > 0.0 and winter_time == null:
 		dusk = minf(1.0, dusk + dt / C.HINT_DUR)
+		cold = minf(1.0, cold + dt * 0.05)
+		worker_slow = lerpf(0.55, 0.35, cold)
+	if brass_sheen > 0.0:
+		brass_sheen = maxf(0.4, brass_sheen - dt * 0.015)
+	## Age 3 hold on core → royal cell / third floor.
+	if brass_time != null and royal_time == null and dragging and time >= C.WOW_ROYAL - 8.0:
+		if G.hypot(hx - cx, hy - cy) < C.HEX * 2.2:
+			age3_hold_t += dt
+			if age3_hold_t >= C.HOLD_AGE3_S:
+				_trigger_royal()
+		else:
+			age3_hold_t = 0.0
+	else:
+		age3_hold_t = 0.0
+	if floor3 and hive_scale < 1.58:
+		hive_scale += (1.6 - hive_scale) * minf(1.0, dt * 0.4)
+	if royal_cell != null and not royal_cell.capped:
+		royal_cell.glow = 0.45 + 0.35 * sin(time * 2.4)
+	if royal_time != null and seeds_time == null and time >= C.WOW_SEEDS - 2.0:
+		_trigger_seeds_hint()
+	if seeds_time != null and mvp_end_time == null and time >= C.WOW_END - 2.0:
+		_trigger_mvp_end()
+	if orbit_t > 0.0:
+		orbit_t += dt
+	if royal_cell != null and royal_cell.capped:
+		royal_cell.queen = minf(1.0, royal_cell.queen + dt * 0.12)
+		royal_cell.glow = 0.75 + 0.25 * sin(time * 3.0)
+	if dim_all > 0.0 and mvp_end_time == null:
+		dim_all = minf(1.0, dim_all + dt * 0.15)
 
 
 func pointer_down(x: float, y: float, meta: Dictionary = {}) -> void:
@@ -1092,6 +1248,11 @@ func metrics() -> Dictionary:
 		"swarmTime": swarm_time,
 		"joinTime": join_time,
 		"hintTime": hint_time,
+		"winterTime": winter_time,
+		"brassTime": brass_time,
+		"royalTime": royal_time,
+		"seedsTime": seeds_time,
+		"mvpEndTime": mvp_end_time,
 	}
 
 
@@ -1117,6 +1278,8 @@ func snapshot() -> Dictionary:
 		"shivering": shiver,
 		"meadow2": {"x": meadow2.x, "y": meadow2.y} if meadow2 != null else null,
 		"secondHive": {"x": second_hive.x, "y": second_hive.y} if second_hive != null else null,
+		"rustMachine": {"x": rust_machine.x, "y": rust_machine.y, "r": rust_machine.r, "looted": rust_machine.looted} if rust_machine != null else null,
+		"royalCell": {"x": royal_cell.x, "y": royal_cell.y, "capped": royal_cell.capped} if royal_cell != null else null,
 	}
 
 
@@ -1219,6 +1382,39 @@ func guidance() -> Dictionary:
 			"from": {"x": hc.x, "y": hc.y, "r": 12.0},
 			"to": {"x": second_hive.x, "y": second_hive.y, "r": 22.0},
 		}
+	if hint_time != null and winter_time == null:
+		return {
+			"stepId": "winter", "label": "Stopa kolem úlu",
+			"target": {"x": hc.x + 95.0, "y": hc.y, "r": 20.0}, "target2": null, "ghost": "trail",
+			"from": {"x": hc.x + 95.0, "y": hc.y - 40.0, "r": 12.0},
+			"to": {"x": hc.x + 40.0, "y": hc.y + 85.0, "r": 12.0},
+		}
+	if winter_time != null and brass_time == null and rust_machine != null:
+		return {
+			"stepId": "brass", "label": "Stopa k rozpadlé mašině",
+			"target": {"x": rust_machine.x, "y": rust_machine.y, "r": rust_machine.r},
+			"target2": null, "ghost": "trail",
+			"from": {"x": hc.x, "y": hc.y, "r": 12.0},
+			"to": {"x": rust_machine.x, "y": rust_machine.y, "r": rust_machine.r},
+		}
+	if brass_time != null and royal_time == null:
+		return {
+			"stepId": "royal", "label": "Podrž jádro",
+			"target": {"x": cx, "y": cy, "r": C.HEX * 1.6},
+			"target2": null, "ghost": "hold", "from": null,
+			"to": {"x": cx, "y": cy, "r": C.HEX * 1.6},
+		}
+	if mvp_end_time != null:
+		return {
+			"stepId": "orbit", "label": "SWARM",
+			"target": null, "target2": null, "ghost": null, "from": null, "to": null,
+		}
+	if seeds_time != null:
+		return {
+			"stepId": "seeds", "label": "Sleduj královskou buňku",
+			"target": {"x": royal_cell.x, "y": royal_cell.y, "r": 16.0} if royal_cell != null else null,
+			"target2": null, "ghost": null, "from": null, "to": null,
+		}
 	return {
 		"stepId": "watch",
 		"label": "Sleduj soumrak" if hint_time != null else "Sleduj louku",
@@ -1237,11 +1433,35 @@ func poll_wows() -> Array:
 	_emit_wow("swarm", "Rojení", swarm_time)
 	_emit_wow("join", "Spojení úlů", join_time)
 	_emit_wow("hint", "Soumrak", hint_time)
+	_emit_wow("winter", "Zimní chomáč", winter_time)
+	_emit_wow("brass", "Mosazný lesk", brass_time)
+	_emit_wow("royal", "Královská buňka", royal_time)
+	_emit_wow("seeds", "Nová královna", seeds_time)
+	_emit_wow("mvp", "Konec MVP", mvp_end_time)
 	if wow_queue.is_empty():
 		return []
 	var out: Array = wow_queue.duplicate()
 	wow_queue.clear()
 	return out
+
+
+func bootstrap_start10() -> void:
+	bootstrap_start5()
+	trail_time = C.WOW_TRAIL
+	floor2_time = C.WOW_FLOOR2
+	floor2 = true
+	hive_scale = 1.32
+	swarm_time = C.WOW_SWARM
+	join_time = C.WOW_JOIN
+	highway_glow = 1.0
+	hive_pulse_sync = 0.8
+	meadow_bloom = 0.8
+	if meadow2 == null:
+		_spawn_meadow2()
+	if second_hive == null and meadow2 != null:
+		second_hive = {"x": meadow2.x, "y": meadow2.y, "chambers": 3, "pulse": 0.8}
+	time = C.START10_T
+	_trigger_dusk_hint()
 
 
 func bootstrap_start5() -> void:

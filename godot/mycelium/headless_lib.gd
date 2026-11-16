@@ -103,7 +103,7 @@ func _run_playthrough(seed_num: int) -> Dictionary:
 	var world = MyceliumWorld.new({"silent": true, "rng": rng})
 	var notes: Array = []
 	var dt: float = 1.0 / 12.0
-	var max_t = 620.0
+	var max_t = 920.0
 	var planted = false
 	var encircle_cd = 0.0
 	var sim_t = 0.0
@@ -156,6 +156,16 @@ func _run_playthrough(seed_num: int) -> Dictionary:
 				phase = "join"
 			elif m.hintTime == null and m.joinTime != null:
 				phase = "wait_hint"
+			elif m.quarantineTime == null and m.hintTime != null and m.time >= 662.0:
+				phase = "enc_quarantine"
+			elif m.skeletonTime == null and m.quarantineTime != null and m.time >= 737.0:
+				phase = "enc_skeleton"
+			elif m.giantTime == null and m.skeletonTime != null and m.time >= 812.0:
+				phase = "hold_giant"
+			elif m.seedsTime == null and m.giantTime != null:
+				phase = "wait_seeds"
+			elif m.mvpEndTime == null and m.seedsTime != null:
+				phase = "wait_mvp"
 			else:
 				phase = "idle"
 
@@ -263,12 +273,40 @@ func _run_playthrough(seed_num: int) -> Dictionary:
 					world.pointer_up()
 				_encircle_stroke(world, g.x, g.y, 55.0, 20)
 				encircle_cd = 2.0
+		elif phase == "enc_quarantine" and encircle_cd <= 0.0:
+			var inf = snap.get("infected")
+			if inf != null:
+				_encircle_stroke(world, inf.x, inf.y, float(inf.r) * 1.35, 24)
+				encircle_cd = 2.2
+		elif phase == "enc_skeleton" and encircle_cd <= 0.0:
+			var sk = snap.get("skeleton")
+			if sk != null:
+				_encircle_stroke(world, sk.x, sk.y, float(sk.r) * 1.35, 28)
+				encircle_cd = 2.2
+		elif phase == "hold_giant":
+			var gf = snap.get("giantFruit")
+			var fx: float
+			var fy: float
+			if gf != null:
+				fx = gf.x
+				fy = gf.y
+			elif fruits.size() > 0:
+				fx = fruits[0].x
+				fy = fruits[0].y
+			elif snap.seed != null:
+				fx = snap.seed.x
+				fy = snap.seed.y - 20.0
+			else:
+				fx = float(C.W) * 0.5
+				fy = float(C.H) * 0.5
+			world.pointer_down(fx, fy)
+			world.pointer_move(fx + 0.05, fy)
 		else:
 			world.pointer_up()
 
 		world.update(dt)
-		# Fast-forward quiet time-gated stretches between midgame wows.
-		if phase in ["idle", "wait_hint"] and m.bigAnchored:
+		# Fast-forward quiet time-gated stretches between midgame / Age 3 wows.
+		if phase in ["idle", "wait_hint", "wait_seeds", "wait_mvp"] and m.bigAnchored:
 			var jump := 0.0
 			if m.decayTime == null and m.time < 338.0:
 				jump = minf(338.0 - m.time, 3.0)
@@ -280,6 +318,16 @@ func _run_playthrough(seed_num: int) -> Dictionary:
 				jump = minf(550.0 - m.time, 3.0)
 			elif m.hintTime == null and m.joinTime != null and m.time < 593.0:
 				jump = minf(593.0 - m.time, 3.0)
+			elif m.quarantineTime == null and m.hintTime != null and m.time < 660.0:
+				jump = minf(660.0 - m.time, 4.0)
+			elif m.skeletonTime == null and m.quarantineTime != null and m.time < 735.0:
+				jump = minf(735.0 - m.time, 4.0)
+			elif m.giantTime == null and m.skeletonTime != null and m.time < 810.0:
+				jump = minf(810.0 - m.time, 4.0)
+			elif m.seedsTime == null and m.giantTime != null and m.time < 878.0:
+				jump = minf(878.0 - m.time, 4.0)
+			elif m.mvpEndTime == null and m.seedsTime != null and m.time < 898.0:
+				jump = minf(898.0 - m.time, 4.0)
 			if jump > 0.0:
 				world.update(jump)
 				sim_t += jump
@@ -300,6 +348,11 @@ func _run_playthrough(seed_num: int) -> Dictionary:
 		"spore": metrics.sporeTime,
 		"join": metrics.joinTime,
 		"hint": metrics.hintTime,
+		"quarantine": metrics.quarantineTime,
+		"skeleton": metrics.skeletonTime,
+		"giant": metrics.giantTime,
+		"seeds": metrics.seedsTime,
+		"mvpEnd": metrics.mvpEndTime,
 	}
 	if beat.firstAnchor == null:
 		notes.append("no first anchor")
@@ -321,12 +374,25 @@ func _run_playthrough(seed_num: int) -> Dictionary:
 		notes.append("no join wow")
 	if beat.hint == null:
 		notes.append("no hint")
+	if beat.quarantine == null:
+		notes.append("no quarantine")
+	if beat.skeleton == null:
+		notes.append("no skeleton")
+	if beat.giant == null:
+		notes.append("no giant fruit")
+	if beat.seeds == null:
+		notes.append("no seeds hint")
+	if beat.mvpEnd == null:
+		notes.append("no mvp end")
 	var early_gap = _max_gap([beat.firstAnchor, beat.midstep, beat.firstFusion, beat.firstWorkers, beat.bigAnchor])
 	var mid_gap = _max_gap([beat.decay, beat.fruit, beat.spore, beat.join, beat.hint])
+	var late_gap = _max_gap([beat.quarantine, beat.skeleton, beat.giant, beat.seeds, beat.mvpEnd])
 	if early_gap != null and float(early_gap) > 90.0:
 		notes.append("early gap %.1fs > 90s" % float(early_gap))
 	if mid_gap != null and float(mid_gap) > 90.0:
 		notes.append("mid gap %.1fs > 90s" % float(mid_gap))
+	if late_gap != null and float(late_gap) > 90.0:
+		notes.append("late gap %.1fs > 90s" % float(late_gap))
 	return {"metrics": metrics, "beat": beat, "notes": notes}
 
 
@@ -383,19 +449,29 @@ func run() -> Dictionary:
 		"spore": _median(_nums(beats.map(func(b): return b.spore))),
 		"join": _median(_nums(beats.map(func(b): return b.join))),
 		"hint": _median(_nums(beats.map(func(b): return b.hint))),
+		"quarantine": _median(_nums(beats.map(func(b): return b.quarantine))),
+		"skeleton": _median(_nums(beats.map(func(b): return b.skeleton))),
+		"giant": _median(_nums(beats.map(func(b): return b.giant))),
+		"seeds": _median(_nums(beats.map(func(b): return b.seeds))),
+		"mvpEnd": _median(_nums(beats.map(func(b): return b.mvpEnd))),
 	}
 
 	var early_gaps: Array = []
 	var mid_gaps: Array = []
+	var late_gaps: Array = []
 	for b in beats:
 		var eg = _max_gap([b.firstAnchor, b.midstep, b.firstFusion, b.firstWorkers, b.bigAnchor])
 		var mg = _max_gap([b.decay, b.fruit, b.spore, b.join, b.hint])
+		var lg = _max_gap([b.quarantine, b.skeleton, b.giant, b.seeds, b.mvpEnd])
 		if eg != null:
 			early_gaps.append(eg)
 		if mg != null:
 			mid_gaps.append(mg)
+		if lg != null:
+			late_gaps.append(lg)
 	var med_early_gap = _median(early_gaps)
 	var med_mid_gap = _median(mid_gaps)
+	var med_late_gap = _median(late_gaps)
 
 	var all_complete = true
 	for b in beats:
@@ -403,6 +479,8 @@ func run() -> Dictionary:
 			b.firstAnchor == null or b.midstep == null or b.firstFusion == null
 			or b.firstWorkers == null or b.bigAnchor == null or b.decay == null
 			or b.fruit == null or b.spore == null or b.join == null or b.hint == null
+			or b.quarantine == null or b.skeleton == null or b.giant == null
+			or b.seeds == null or b.mvpEnd == null
 		):
 			all_complete = false
 			break
@@ -427,7 +505,17 @@ func run() -> Dictionary:
 		and med_mid_gap != null
 		and float(med_mid_gap) <= 90.0
 	)
-	var ok = early_ok and mid_ok and all_complete and fps >= 60.0
+	# Age 3: 11:10 / 12:25 / 13:40 / 14:40 / 15:00
+	var late_ok = (
+		_near(med.quarantine, 670.0, 15.0)
+		and _near(med.skeleton, 745.0, 15.0)
+		and _near(med.giant, 820.0, 15.0)
+		and _near(med.seeds, 880.0, 15.0)
+		and _near(med.mvpEnd, 900.0, 15.0)
+		and med_late_gap != null
+		and float(med_late_gap) <= 90.0
+	)
+	var ok = early_ok and mid_ok and late_ok and all_complete and fps >= 60.0
 
 	var seeds_out: Array = []
 	for i in range(beats.size()):
@@ -439,6 +527,11 @@ func run() -> Dictionary:
 			"spore": _fmt(b.spore),
 			"join": _fmt(b.join),
 			"hint": _fmt(b.hint),
+			"quarantine": _fmt(b.quarantine),
+			"skeleton": _fmt(b.skeleton),
+			"giant": _fmt(b.giant),
+			"seeds": _fmt(b.seeds),
+			"mvpEnd": _fmt(b.mvpEnd),
 		})
 
 	return {
@@ -454,8 +547,14 @@ func run() -> Dictionary:
 			"spore": _fmt(med.spore),
 			"join": _fmt(med.join),
 			"hint": _fmt(med.hint),
+			"quarantine": _fmt(med.quarantine),
+			"skeleton": _fmt(med.skeleton),
+			"giant": _fmt(med.giant),
+			"seeds": _fmt(med.seeds),
+			"mvpEnd": _fmt(med.mvpEnd),
 			"earlyGapSec": med_early_gap,
 			"midGapSec": med_mid_gap,
+			"lateGapSec": med_late_gap,
 		},
 		"fps": int(round(fps)),
 		"updateMs": snappedf(update_ms, 0.001),
