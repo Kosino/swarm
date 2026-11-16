@@ -29,5 +29,5 @@ godot --headless --path godot --script res://apis/headless.gd
 - Web entry: `/godot/` (menu). Direct rods: `/godot/?rod=apis` / `?rod=mycelium`. Canvas sketch stays at `/`.
 - Windows: CI artifact `swarm-windows` + GitHub Release zip on `v*` tags.
 - Esc → menu (autosave). Continue icon on choose screen when a run is saved.
-- Apis iso atlas (`apis_iso_v1`) not in drop yet — grey placeholders remain until next art PR.
+- Apis iso atlas v1 under `godot/art/apis_iso_v1/` (grey fallback if missing).
 
