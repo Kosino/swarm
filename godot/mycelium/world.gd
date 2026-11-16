@@ -741,6 +741,8 @@ func plant_seed(x: float, y: float) -> void:
 	if seed != null:
 		return
 	seed = {"x": x, "y": y}
+	_sfx_soft("bubble")
+	SwarmSfx.play_place(true)
 	for p in patches:
 		if _hypot(p.x - x, p.y - y) >= C.SEED_CLEAR:
 			continue

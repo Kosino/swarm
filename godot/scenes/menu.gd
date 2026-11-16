@@ -16,6 +16,9 @@ var dive_rod: String = ""
 var continue_available: bool = false
 var continue_rod: String = ""
 var continue_hover: bool = false
+var vol_drag: bool = false
+var _prev_hover: String = ""
+var _prev_continue_hover: bool = false
 var pro: Dictionary = {}
 var _title_font: Font
 var _body_font: Font
@@ -163,6 +166,25 @@ func _volume_pos() -> Vector2:
 	return Vector2(vp.x - 36.0, 36.0)
 
 
+func _volume_slider_rect() -> Rect2:
+	## Track to the left of the volume icon.
+	var ic := _volume_pos()
+	return Rect2(ic.x - 118.0, ic.y - 8.0, 88.0, 16.0)
+
+
+func _volume_hit(pos: Vector2) -> bool:
+	if pos.distance_to(_volume_pos()) < 22.0:
+		return true
+	return _volume_slider_rect().grow(6.0).has_point(pos)
+
+
+func _set_volume_from_x(x: float) -> void:
+	var r := _volume_slider_rect()
+	var u: float = clampf((x - r.position.x) / maxf(1.0, r.size.x), 0.0, 1.0)
+	SwarmAudio.set_volume(u)
+	SwarmAudio.set_ambient("menu" if hover == "" else hover)
+
+
 func _continue_pos() -> Vector2:
 	var vp := get_viewport_rect().size
 	return Vector2(vp.x * 0.5, vp.y - 56.0)
@@ -171,25 +193,48 @@ func _continue_pos() -> Vector2:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		var mp := (event as InputEventMouseMotion).position
+		if vol_drag and phase == Phase.CHOOSE:
+			_set_volume_from_x(mp.x)
+			return
 		hover = _hit_rod(mp)
 		continue_hover = continue_available and phase == Phase.CHOOSE and mp.distance_to(_continue_pos()) < 28.0
+		if phase == Phase.CHOOSE:
+			if hover != _prev_hover and hover != "":
+				SwarmAudio.play_ui("hover")
+			elif continue_hover and not _prev_continue_hover:
+				SwarmAudio.play_ui("hover")
+		_prev_hover = hover
+		_prev_continue_hover = continue_hover
 	elif event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
-		if not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
+		if mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		if not mb.pressed:
+			vol_drag = false
 			return
 		if phase == Phase.TITLE:
+			SwarmAudio.play_ui("click")
 			phase = Phase.CHOOSE
 			return
 		if phase == Phase.CHOOSE:
-			if mb.position.distance_to(_volume_pos()) < 22.0:
-				SwarmAudio.cycle_volume()
+			if _volume_hit(mb.position):
+				vol_drag = true
+				if mb.position.distance_to(_volume_pos()) < 22.0 and not _volume_slider_rect().has_point(mb.position):
+					## Icon tap still cycles for one-handed mute.
+					SwarmAudio.cycle_volume()
+					SwarmAudio.play_ui("tick")
+				else:
+					_set_volume_from_x(mb.position.x)
+					SwarmAudio.play_ui("tick")
 				SwarmAudio.set_ambient("menu" if hover == "" else hover)
 				return
 			if continue_available and mb.position.distance_to(_continue_pos()) < 28.0:
+				SwarmAudio.play_ui("click")
 				_do_continue()
 				return
 			var rod := _hit_rod(mb.position)
 			if rod != "":
+				SwarmAudio.play_ui("click")
 				## Fresh run for chosen rod.
 				get_tree().set_meta("swarm_continue", false)
 				_start_dive(rod)
@@ -305,6 +350,11 @@ func _draw_logo(at: Vector2, alpha: float) -> void:
 
 func _draw_volume_icon(ic: Vector2) -> void:
 	var vol: float = 0.0 if SwarmAudio.muted else SwarmAudio.volume
+	var track := _volume_slider_rect()
+	## Slider track + fill.
+	draw_rect(track, Color(0.12, 0.14, 0.12, 0.55))
+	draw_rect(Rect2(track.position, Vector2(track.size.x * clampf(vol, 0.0, 1.0), track.size.y)), Color(0.72, 0.82, 0.68, 0.75))
+	draw_arc(track.position + Vector2(track.size.x * clampf(vol, 0.0, 1.0), track.size.y * 0.5), 6.0, 0, TAU, 16, Color(0.88, 0.92, 0.84, 0.95), 1.6)
 	draw_arc(ic, 14.0, 0, TAU, 24, Color(0.75, 0.78, 0.72, 0.7), 1.5)
 	if vol < 0.05:
 		draw_line(ic + Vector2(-8, -8), ic + Vector2(8, 8), Color(0.85, 0.4, 0.35, 0.85), 2.0)

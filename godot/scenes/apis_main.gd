@@ -7,6 +7,7 @@ const Atlas = preload("res://apis/iso_atlas.gd")
 const Atm = preload("res://ui/atmosphere.gd")
 const ProArt = preload("res://ui/pro_art.gd")
 const STheme = preload("res://ui/swarm_theme.gd")
+const Juice = preload("res://ui/juice.gd")
 
 @onready var camera: Camera2D = $Camera2D
 @onready var hud: CanvasLayer = $HUD
@@ -38,8 +39,13 @@ var _other_planet_a: float = 0.0
 var _autosave_cd: float = 60.0
 var _run_seed: int = 42
 var _fx: Array = [] ## {seq, x, y, t, life}
+var _juice: Array = [] ## placement pop / ripple / float text
 var _prev_core_pulse: float = 0.0
 var _prev_highway: float = 0.0
+var _prev_chambers: int = 0
+var _prev_wax: float = -1.0
+var _prev_nectar_flag = null
+var _had_planted: bool = false
 
 
 func _ready() -> void:
@@ -97,6 +103,10 @@ func _ready() -> void:
 	SwarmAudio.set_ambient("apis")
 	_atm = Atm.apply(self, "apis", camera, hud)
 	hud.visible = demo_on
+	_had_planted = world.planted
+	_prev_chambers = world.chambers.size()
+	_prev_wax = float(world.wax)
+	_prev_nectar_flag = world.first_nectar
 	camera.position = Iso.world_to_iso(_hive().x, _hive().y)
 	zoom_target = 1.0
 	camera.zoom = Vector2(zoom_target * world.cam_zoom, zoom_target * world.cam_zoom)
@@ -324,10 +334,43 @@ func _tick_fx(dt: float) -> void:
 		_spawn_fx("apis2_fx_kapka", h.x, h.y, 1.0)
 		_spawn_fx("apis2_fx_pyl", h.x + 10.0, h.y - 6.0, 1.1)
 		_spawn_fx("apis2_fx_feromon", h.x, h.y + 8.0, 0.95)
+		Juice.spawn_ripple(_juice, h.x, h.y, true, Color(1.0, 0.82, 0.35, 0.75))
 	if world.highway_glow > _prev_highway + 0.35:
 		var h2 := _hive()
 		_spawn_fx("apis2_fx_feromon", h2.x, h2.y, 1.0)
 		_spawn_fx("apis2_fx_pyl", h2.x - 8.0, h2.y + 6.0, 1.05)
+	## Hive plant / chamber placement pops.
+	if world.planted and not _had_planted:
+		_had_planted = true
+		var hive := _hive()
+		Juice.spawn_pop(_juice, hive.x, hive.y, Color(1.0, 0.85, 0.4, 0.95))
+		Juice.spawn_ripple(_juice, hive.x, hive.y, false, Color(0.95, 0.78, 0.35, 0.65))
+	elif world.planted:
+		_had_planted = true
+	var n_ch: int = world.chambers.size()
+	if n_ch > _prev_chambers:
+		## Newest chamber — prefer lowest grow (just placed).
+		var cx: float = _hive().x
+		var cy: float = _hive().y
+		var best_g: float = 99.0
+		for ch in world.chambers.values():
+			var g: float = float(ch.grow)
+			if g < best_g:
+				best_g = g
+				var hex_p := _chamber_pixel(ch)
+				cx = hex_p.x
+				cy = hex_p.y
+		Juice.spawn_pop(_juice, cx, cy, Color(0.98, 0.84, 0.42, 0.9), 0.38)
+		Juice.spawn_float(_juice, cx, cy, "+cell", Color(1.0, 0.9, 0.55, 0.95))
+	_prev_chambers = n_ch
+	## Wax / nectar resource ticks.
+	if _prev_wax >= 0.0 and float(world.wax) > _prev_wax + 0.4:
+		Juice.spawn_float(_juice, _hive().x, _hive().y - 14.0, "+wax", Color(0.95, 0.88, 0.55, 0.9))
+	_prev_wax = float(world.wax)
+	if world.first_nectar != null and _prev_nectar_flag == null:
+		Juice.spawn_float(_juice, _hive().x, _hive().y - 8.0, "+nectar", Color(1.0, 0.78, 0.35, 0.95))
+		Juice.spawn_pop(_juice, _hive().x, _hive().y, Color(1.0, 0.8, 0.4, 0.85), 0.4)
+	_prev_nectar_flag = world.first_nectar
 	_prev_core_pulse = world.core_pulse
 	_prev_highway = world.highway_glow
 	var i := _fx.size() - 1
@@ -336,6 +379,11 @@ func _tick_fx(dt: float) -> void:
 		if _fx[i].t >= _fx[i].life:
 			_fx.remove_at(i)
 		i -= 1
+	Juice.tick(_juice, dt)
+
+
+func _chamber_pixel(ch: Dictionary) -> Vector2:
+	return world._axial_to_pixel(int(ch.q), int(ch.r))
 
 
 func _draw() -> void:
@@ -349,6 +397,7 @@ func _draw() -> void:
 	_draw_builders()
 	_draw_workers()
 	_draw_fx()
+	_draw_juice()
 	_draw_edge_fog()
 	_draw_guidance()
 
@@ -847,6 +896,10 @@ func _draw_workers() -> void:
 			var iso := Iso.world_to_iso(w.x, w.y)
 			var col := Color(0.85, 0.75, 0.35, 0.95) if w.carrying else Color(0.45, 0.42, 0.38, 0.9)
 			draw_circle(iso, 2.2, col)
+
+
+func _draw_juice() -> void:
+	Juice.draw_all(self, _juice, func(x: float, y: float) -> Vector2: return Iso.world_to_iso(x, y), STheme.body_font())
 
 
 func _draw_fx() -> void:

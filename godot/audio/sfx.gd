@@ -37,6 +37,24 @@ static func play_chime() -> void:
 		a.play_chime()
 
 
+static func play_ui(kind: String) -> void:
+	var a = _audio()
+	if a != null:
+		a.play_ui(kind)
+
+
+static func play_place(soft: bool = false) -> void:
+	var a = _audio()
+	if a != null:
+		a.play_place(soft)
+
+
+static func play_pulse(big: bool = false) -> void:
+	var a = _audio()
+	if a != null:
+		a.play_pulse(big)
+
+
 static func set_ambient(rod: String) -> void:
 	var a = _audio()
 	if a != null:
