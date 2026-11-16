@@ -58,11 +58,29 @@ func _ready() -> void:
 		var s3 := str(a3)
 		if s3.begins_with("--capture-out="):
 			capture_out = s3.substr(14)
+		## Desktop / capture: grown=apis|mycelium mirrors web query + MVP return.
+		if s3.begins_with("--grown=") or s3.begins_with("grown="):
+			var g := s3.get_slice("=", 1).to_lower()
+			if g == "apis":
+				grown.apis = true
+			elif g == "mycelium":
+				grown.mycelium = true
 	if "--menu=choose" in args or "menu=choose" in args:
 		phase = Phase.CHOOSE
 	_load_persist()
+	## Cmdline grown flags win over empty save (capture / return stills).
+	for a4 in args:
+		var s4 := str(a4)
+		if s4.begins_with("--grown=") or s4.begins_with("grown="):
+			var g2 := s4.get_slice("=", 1).to_lower()
+			if g2 == "apis":
+				grown.apis = true
+			elif g2 == "mycelium":
+				grown.mycelium = true
 	if capture_out != "":
 		phase = Phase.CHOOSE
+		## Let invite / grown blink settle one beat before PNG.
+		t = 1.35
 		await get_tree().process_frame
 		await get_tree().process_frame
 		await get_tree().process_frame
@@ -412,6 +430,9 @@ func _draw() -> void:
 			draw_circle(Vector2(sx, sy), 1.0 + float(i % 2), Color(1, 1, 1, a * 0.4))
 
 	var centers := _planet_centers()
+	## MVP return / Dva úly: faint mycelium thread when one Rod matured.
+	if phase == Phase.CHOOSE and (grown.apis or grown.mycelium) and not (grown.apis and grown.mycelium):
+		_draw_dual_invite_link(centers.apis, centers.mycelium)
 	_draw_planet(centers.apis, _planet_radius("apis"), COL_APIS, grown.apis, "APIS", phase != Phase.TITLE)
 	_draw_planet(centers.mycelium, _planet_radius("mycelium"), COL_MYC, grown.mycelium, "MYCELIUM", phase != Phase.TITLE)
 
@@ -532,16 +553,42 @@ func _draw_continue_icon(at: Vector2, hot: bool) -> void:
 	draw_colored_polygon(tri, col)
 
 
+func _draw_dual_invite_link(a: Vector2, b: Vector2) -> void:
+	## Soft mycelium hint between matured Rod and the inviting other planet.
+	var mid: Vector2 = (a + b) * 0.5 + Vector2(0, -36.0 + sin(t * 1.4) * 6.0)
+	var alpha: float = 0.22 + 0.18 * abs(sin(t * 1.6))
+	var steps := 10
+	for i in range(1, steps + 1):
+		var u0: float = float(i - 1) / float(steps)
+		var u1: float = float(i) / float(steps)
+		var p0: Vector2 = a.lerp(b, u0) + (mid - (a + b) * 0.5) * sin(u0 * PI)
+		var p1: Vector2 = a.lerp(b, u1) + (mid - (a + b) * 0.5) * sin(u1 * PI)
+		var c: Color = COL_APIS.lerp(COL_MYC, u1)
+		c.a = alpha * (0.45 + 0.55 * sin(u1 * PI))
+		draw_line(p0, p1, c, 1.6, true)
+	var mote_u: float = fmod(t * 0.28, 1.0)
+	var mote: Vector2 = a.lerp(b, mote_u) + (mid - (a + b) * 0.5) * sin(mote_u * PI)
+	draw_circle(mote, 2.8, Color(0.95, 1.05, 0.7, alpha + 0.25))
+
+
 func _draw_planet(c: Vector2, r: float, col: Color, has_grown: bool, label: String, show_label: bool) -> void:
 	## menu_dual already paints both planets — never re-blit full menu panels (rectangular insets).
 	## Hover = soft ring + wash; dive title uses procedural sphere if no dual bg.
-	var hot: bool = hover == label.to_lower()
+	var rod_key: String = label.to_lower()
+	var hot: bool = hover == rod_key
+	## After MVP: ungrown planet invites play (breathing rings) while grown carries organism.
+	var other_grown: bool = bool(grown.mycelium) if rod_key == "apis" else bool(grown.apis)
+	var inviting: bool = phase == Phase.CHOOSE and not has_grown and other_grown
 	var dual_bg: bool = ProArt.has(pro, "menu_choose") or ProArt.has(pro, "menu_dual")
+	var invite_pulse: float = 0.55 + 0.45 * abs(sin(t * 2.4))
 	if phase == Phase.CHOOSE and dual_bg:
-		if hot:
-			draw_circle(c, r * 1.12, Color(col.r, col.g, col.b, 0.14))
-			draw_arc(c, r * 1.02, 0, TAU, 64, Color(col.r, col.g, col.b, 0.95), 3.0)
-			draw_arc(c, r * 0.92, 0, TAU, 48, Color(1, 1, 1, 0.35), 1.4)
+		if hot or inviting:
+			var wash_a: float = 0.14 if hot else 0.08 + 0.06 * invite_pulse
+			draw_circle(c, r * (1.12 + (0.06 * invite_pulse if inviting else 0.0)), Color(col.r, col.g, col.b, wash_a))
+			draw_arc(c, r * 1.02, 0, TAU, 64, Color(col.r, col.g, col.b, 0.95 if hot else 0.55 + 0.4 * invite_pulse), 3.0)
+			draw_arc(c, r * 0.92, 0, TAU, 48, Color(1, 1, 1, 0.35 if hot else 0.18 + 0.2 * invite_pulse), 1.4)
+			if inviting:
+				draw_arc(c, r * (1.18 + 0.08 * invite_pulse), 0, TAU, 48, Color(col.r, col.g, col.b, 0.28 * invite_pulse), 1.5)
 		else:
 			draw_arc(c, r, 0, TAU, 48, Color(col.r, col.g, col.b, 0.35), 1.5)
 	elif ProArt.has(pro, "menu_apis" if label == "APIS" else "menu_mycelium") and phase != Phase.CHOOSE:
@@ -554,10 +601,20 @@ func _draw_planet(c: Vector2, r: float, col: Color, has_grown: bool, label: Stri
 		draw_circle(c + Vector2(-r * 0.22, -r * 0.18), r * 0.72, col.lightened(0.08))
 		draw_arc(c, r, 0, TAU, 48, Color(col.r, col.g, col.b, 0.55 if hot else 0.35), 2.0)
 	if has_grown:
+		## Grown organism on player's planet — pro_v3 kukla / tobolka blink (scenar_10-15 return).
 		var blink: float = 0.55 + 0.45 * abs(sin(t * 3.0))
-		draw_circle(c + Vector2(0, -r * 0.15), r * 0.18, Color(1, 1, 0.85, blink))
-		draw_arc(c + Vector2(0, -r * 0.15), r * 0.28, 0, TAU, 20, Color(1, 1, 0.9, blink * 0.7), 1.5)
+		var org_at := c + Vector2(0, -r * 0.08)
+		var org_key := "apis_royal_cell" if rod_key == "apis" else "myc_seed_capsule"
+		if ProArt.has(pro, org_key):
+			## Pivot is foot-biased — sit the organism on the planet crown.
+			var osc: float = 0.26 + 0.04 * blink
+			draw_circle(org_at + Vector2(0, -18.0), r * 0.22, Color(1.0, 0.95, 0.7, 0.16 + 0.14 * blink))
+			ProArt.blit(self, pro, org_key, org_at, osc, Color(1.2, 1.12, 0.92, 0.7 + 0.3 * blink))
+			draw_arc(org_at + Vector2(0, -22.0), r * 0.36, 0, TAU, 28, Color(1, 1, 0.9, blink * 0.65), 1.6)
+		else:
+			draw_circle(org_at, r * 0.18, Color(1, 1, 0.85, blink))
+			draw_arc(org_at, r * 0.28, 0, TAU, 20, Color(1, 1, 0.9, blink * 0.7), 1.5)
 	if show_label and phase != Phase.DIVE:
-		var lc := Color(0.92, 0.94, 0.88, 0.95 if hot else 0.85)
+		var lc := Color(0.92, 0.94, 0.88, 0.95 if hot or inviting else 0.85)
 		var font: Font = _title_font if _title_font else ThemeDB.fallback_font
 		draw_string(font, c + Vector2(-42, r + 28), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, lc)

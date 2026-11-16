@@ -1322,6 +1322,11 @@ func _draw_entities() -> void:
 			var gfn := "myc2_plodnice_zariva" if gf.grow > 0.7 else ("myc2_plodnice_dorostla" if gf.grow > 0.3 else "myc2_plodnice_rozestavena")
 			if atlas.has(gfn):
 				_blit(gfn, gf.x, gf.y, 0.88 + gf.grow * 0.45 if not _use_2x else 0.44 + gf.grow * 0.22, Color(1.2, 1.25, 1.05, 0.9 * dim), Vector2(0, -12))
+		## Age-3 Dva úly foreshadow — skyward hypha reaching toward the other planet.
+		if world.mvp_end_time == null and float(gf.grow) > 0.55:
+			_draw_skyward_contact_hypha(Vector2(gf.x, gf.y), float(gf.grow))
+	elif use_tobolka and world.mvp_end_time == null and world.giant_fruit != null:
+		_draw_skyward_contact_hypha(Vector2(world.giant_fruit.x, world.giant_fruit.y), 1.0)
 	if seeds_on and world.mvp_end_time == null and world.dim_all <= 0.0:
 		_draw_seed_capsule_hero()
 	if world.mvp_end_time != null:
@@ -1412,9 +1417,15 @@ func _draw_ending_planet() -> void:
 		ProArt.blit(self, pro, "orbit_bg", cam, 0.78 / z, Color(1, 1, 1, a_bg))
 	## Soft dim — keep nebula + planet readable under the logo beat.
 	draw_rect(Rect2(cam - vp * 0.55 / z, vp * 1.1 / z), Color(0.02, 0.03, 0.04, minf(0.32, world.orbit_t * 0.08)), true)
+	## Home Mycelium world — green tečka below; distant warm Apis glimmer beyond.
+	var home := cam + Vector2(0, vp.y * 0.14 / z)
 	var p := cam + Vector2(vp.x * 0.3 / z, -vp.y * 0.18 / z)
 	var tw: float = 0.55 + 0.45 * abs(sin(world.time * 2.2))
 	var planet_a: float = _other_planet_a * tw
+	var home_a: float = minf(1.0, world.orbit_t * 0.45) * (0.7 + 0.3 * abs(sin(world.time * 1.8)))
+	draw_circle(home, 9.0 / z, Color(0.4, 0.85, 0.55, home_a * 0.55))
+	draw_circle(home, 4.5 / z, Color(0.75, 1.15, 0.7, home_a))
+	draw_arc(home, 14.0 / z, 0, TAU, 28, Color(0.45, 0.9, 0.6, home_a * 0.35), 1.2)
 	var psc: float = 0.24 / z * camera.zoom.x
 	if ProArt.has(pro, "ending_planet"):
 		## Warm Apis glimmer rings.
@@ -1427,13 +1438,58 @@ func _draw_ending_planet() -> void:
 	else:
 		draw_circle(p, 12.0, Color(0.95, 0.75, 0.3, planet_a))
 		draw_arc(p, 20.0, 0, TAU, 28, Color(0.95, 0.7, 0.25, planet_a * 0.45), 1.6)
-	## Tobolka pulse toward the distant warm planet (once).
+	## Dva úly foreshadow — mycelium filament linking home → distant Apis.
+	var link_a: float = planet_a * 0.55
+	_draw_orbit_mycelium_link(home, p, link_a, Color(0.75, 1.1, 0.55, 1.0), Color(1.1, 0.95, 0.45, 1.0))
+	## Tobolka pulse rides the filament toward the warm planet.
 	if world.seed_capsule != null and float(world.seed_capsule.get("pulse", 0.0)) > 0.2:
-		var tip := cam + Vector2(0, vp.y * 0.12 / z)
-		var pa: float = 0.2 + 0.45 * abs(sin(world.time * 2.4)) * float(world.seed_capsule.pulse)
-		draw_line(tip, p, Color(0.85, 1.15, 0.55, pa * 0.4), 2.4, true)
-		draw_line(tip, p, Color(1.15, 1.4, 0.8, pa), 1.1, true)
+		var pa: float = 0.25 + 0.5 * abs(sin(world.time * 2.4)) * float(world.seed_capsule.pulse)
+		draw_line(home, p, Color(0.85, 1.15, 0.55, pa * 0.35), 2.8 / z, true)
+		draw_line(home, p, Color(1.2, 1.45, 0.85, pa), 1.2 / z, true)
 	## Logo lives only on EndPanel (Honza nit — no redundant world-space title).
+
+
+func _draw_skyward_contact_hypha(world_pos: Vector2, grow: float) -> void:
+	## Thin filament from mature organism toward orbit — dual-planet contact hint.
+	var base := Iso.world_to_iso(world_pos.x, world_pos.y) + Vector2(0, -28.0)
+	var tip := base + Vector2(22.0 + sin(world.time * 0.7) * 6.0, -70.0 - grow * 28.0)
+	var alpha: float = 0.2 + 0.25 * grow * (0.6 + 0.4 * abs(sin(world.time * 1.8)))
+	var mid := base.lerp(tip, 0.5) + Vector2(-10.0, 0)
+	var steps := 10
+	for i in range(1, steps + 1):
+		var u0: float = float(i - 1) / float(steps)
+		var u1: float = float(i) / float(steps)
+		var p0: Vector2 = base.lerp(tip, u0) + (mid - base.lerp(tip, 0.5)) * sin(u0 * PI)
+		var p1: Vector2 = base.lerp(tip, u1) + (mid - base.lerp(tip, 0.5)) * sin(u1 * PI)
+		draw_line(p0, p1, Color(0.7, 1.05, 0.55, alpha * (1.0 - u1 * 0.35)), 1.8, true)
+	draw_circle(tip, 3.0 + grow, Color(1.05, 0.9, 0.45, alpha * 0.7))
+	draw_arc(tip, 8.0 + grow * 4.0, 0, TAU, 20, Color(1.0, 0.85, 0.4, alpha * 0.35), 1.1)
+
+
+func _draw_orbit_mycelium_link(a: Vector2, b: Vector2, alpha: float, col_a: Color, col_b: Color) -> void:
+	## Soft hypha thread + traveling spores between dual planets (presentation only).
+	if alpha <= 0.02:
+		return
+	var mid: Vector2 = (a + b) * 0.5 + Vector2(-18.0, -28.0) * (1.0 / maxf(camera.zoom.x, 0.2))
+	var pts := PackedVector2Array()
+	var steps := 14
+	for i in range(steps + 1):
+		var u: float = float(i) / float(steps)
+		var p1: Vector2 = a.lerp(b, u)
+		var bend: Vector2 = (mid - (a + b) * 0.5) * sin(u * PI)
+		pts.append(p1 + bend)
+	for i in range(1, pts.size()):
+		var u2: float = float(i) / float(pts.size() - 1)
+		var c: Color = col_a.lerp(col_b, u2)
+		c.a = alpha * (0.35 + 0.4 * sin(u2 * PI))
+		draw_line(pts[i - 1], pts[i], c, 2.2, true)
+		draw_line(pts[i - 1], pts[i], Color(c.r, c.g, c.b, c.a * 0.55), 4.0, true)
+	## Traveling mote along the filament.
+	var mote_u: float = fmod(world.time * 0.22, 1.0)
+	var mi: int = clampi(int(mote_u * float(pts.size() - 1)), 0, pts.size() - 1)
+	var mote: Vector2 = pts[mi]
+	draw_circle(mote, 3.2, Color(1.15, 1.25, 0.7, alpha * 0.85))
+	draw_circle(mote, 7.0, Color(0.85, 1.1, 0.5, alpha * 0.22))
 
 
 func _draw_box_fallback(wx: float, wy: float, half: float, col: Color) -> void:
