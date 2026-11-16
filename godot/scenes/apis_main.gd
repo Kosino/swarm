@@ -1039,7 +1039,8 @@ func _bee_dir(dx: float, dy: float) -> String:
 func _draw_builders() -> void:
 	## Visual-only stavitelky on the half-built rim (and any still-growing cells).
 	var hive := _hive()
-	var sc: float = 0.42 if not _use_2x else 0.21
+	## Build 22: taller 3/4 stavitelka + walk bob toward overview ground bees.
+	var sc: float = 0.56 if not _use_2x else 0.28
 	var max_ring: float = 0.0
 	for ch0 in world.chambers.values():
 		max_ring = maxf(max_ring, sqrt(float(ch0.q * ch0.q + ch0.r * ch0.r + ch0.q * ch0.r)))
@@ -1064,7 +1065,14 @@ func _draw_builders() -> void:
 		if not atlas.has(name):
 			name = "apis2_stavitelka_%s" % dir
 		if atlas.has(name):
-			_blit(name, bx, by, sc)
+			## Walk cycle — grounded stride bob (koncept_pokrocila ground bees).
+			var stride: float = world.time * 7.5 + float(ch.q) * 1.3 + float(ch.r) * 0.9
+			var walk_y: float = -1.5 + sin(stride) * 1.8
+			var walk_x: float = cos(stride * 0.5) * 0.6
+			var sc_bob: float = sc * (1.0 + 0.035 * sin(stride * 2.0))
+			if SwarmGfx.soft_shadows():
+				_draw_soft_shadow(bx, by, 5.5, 0.22)
+			_blit(name, bx, by, sc_bob, Color(1.06, 0.98, 0.88, 0.96), Vector2(walk_x, walk_y))
 			drawn += 1
 			if drawn >= max_b:
 				break
@@ -1089,9 +1097,26 @@ func _draw_workers() -> void:
 		if not atlas.has(name):
 			name = "apis2_letavka_SE"
 		if atlas.has(name):
-			_blit(name, w.x, w.y, 0.45 if not _use_2x else 0.22)
+			## Build 22: 3/4 letavka + hover/walk anim polish (overview drones).
+			var ph: float = float(w.phase)
+			var in_flight: bool = int(w.flower) >= 0 or int(w.flower) == -2
+			var wing: float = 1.0 + (0.055 if in_flight else 0.028) * sin(ph * 14.0 + world.time * 2.0)
+			var bob: float = sin(ph * (9.0 if in_flight else 7.0) + world.time) * (2.6 if in_flight else 1.6)
+			var lift_y: float = (-9.0 if in_flight else -3.0) + bob
+			var sc: float = (0.58 if not _use_2x else 0.29) * wing
+			var mod := Color(1.08, 1.0, 0.88, 0.96)
+			if w.carrying:
+				mod = Color(1.18, 1.08, 0.72, 0.98)
+			if SwarmGfx.soft_shadows():
+				_draw_soft_shadow(w.x, w.y, 6.5 if in_flight else 5.0, 0.2 if in_flight else 0.24)
+			_blit(name, w.x, w.y, sc, mod, Vector2(0.0, lift_y))
 			if w.carrying and atlas.has("apis2_overlay_med") and SwarmGfx.q_level() < 2:
-				_blit("apis2_overlay_med", w.x, w.y, 0.18 if not _use_2x else 0.09, Color(1, 1, 1, 0.55))
+				_blit(
+					"apis2_overlay_med", w.x, w.y,
+					0.2 if not _use_2x else 0.1,
+					Color(1.25, 1.1, 0.55, 0.58),
+					Vector2(0.0, lift_y - 4.0)
+				)
 		else:
 			var iso := Iso.world_to_iso(w.x, w.y)
 			var col := Color(0.85, 0.75, 0.35, 0.95) if w.carrying else Color(0.45, 0.42, 0.38, 0.9)
