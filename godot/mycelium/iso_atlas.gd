@@ -6,12 +6,43 @@ class_name MyceliumIsoAtlas
 
 const ROOT := "res://art/mycelium_iso_v2/"
 const JSON_PATH := ROOT + "godot_atlas.json"
+## Build 21: taller art_drop silhouettes (plodnice / kotva / zárodek) prefer loose sprites/.
+const LOOSE_SILHOUETTES := [
+	"myc2_plodnice_rozestavena", "myc2_plodnice_dorostla", "myc2_plodnice_zariva",
+	"myc2_kotva_rozestavena", "myc2_kotva_dorostla", "myc2_kotva_zariva",
+	"myc2_zarodek_rozestavena", "myc2_zarodek_dorostla", "myc2_zarodek_zariva",
+]
 
 
 static func _logical_name(name: String, use_2x: bool) -> String:
 	if use_2x and name.ends_with("_2x"):
 		return name.substr(0, name.length() - 3)
 	return name
+
+
+static func _apply_loose_silhouettes(out: Dictionary, use_2x: bool) -> void:
+	## Prefer art_drop 3/4-height sprites over shorter atlas crops when present.
+	for logical in LOOSE_SILHOUETTES:
+		var file_name: String = logical + ("_2x.png" if use_2x else ".png")
+		var path: String = ROOT + "sprites/" + file_name
+		if not ResourceLoader.exists(path) and not FileAccess.file_exists(path):
+			continue
+		var tex: Texture2D = load(path) as Texture2D
+		if tex == null:
+			continue
+		var sz: Vector2 = tex.get_size()
+		var pivot := Vector2(sz.x * 0.5, sz.y)
+		if out.has(logical) and out[logical].has("pivot"):
+			## Keep atlas pivot X when available; drop foot to sprite bottom for taller crop.
+			pivot.x = float(out[logical].pivot.x)
+			if use_2x and pivot.x < sz.x * 0.25:
+				pivot.x = sz.x * 0.5
+		var offset := Vector2(-pivot.x, -pivot.y + 6.0 * (2.0 if use_2x else 1.0))
+		out[logical] = {
+			"texture": tex,
+			"pivot": pivot,
+			"offset": offset,
+		}
 
 
 static func load_all(use_2x: bool = false) -> Dictionary:
@@ -51,6 +82,7 @@ static func load_all(use_2x: bool = false) -> Dictionary:
 			"pivot": Vector2(float(pv["x"]), float(pv["y"])),
 			"offset": Vector2(float(off["x"]), float(off["y"])),
 		}
+	_apply_loose_silhouettes(out, use_2x)
 	return out
 
 
