@@ -92,13 +92,8 @@ func _ready() -> void:
 		var Bot = preload("res://tools/capture_bot.gd")
 		Bot.advance_apis(world, capture_at)
 		demo_on = false
-		## Pull out at later beats so comb rings / trails / meadow živá / dusk read.
-		if capture_at >= 600.0:
-			world.cam_zoom = minf(world.cam_zoom_target, C.CAM_ZOOM_OUT * 0.95)
-		elif capture_at >= 300.0:
-			world.cam_zoom = lerpf(C.CAM_ZOOM_IN, C.CAM_ZOOM_OUT, 0.35)
-		else:
-			world.cam_zoom = world.cam_zoom_target
+		## Snap to world growth zoom (progress/time in ApisWorld.update) — no capture-only override.
+		world.cam_zoom = world.cam_zoom_target
 	SwarmAudio.set_ambient("apis")
 	_atm = Atm.apply(self, "apis", camera, hud)
 	hud.visible = demo_on

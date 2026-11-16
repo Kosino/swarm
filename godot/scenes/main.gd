@@ -124,13 +124,8 @@ func _ready() -> void:
 		var Bot = preload("res://tools/capture_bot.gd")
 		Bot.advance_mycelium(world, capture_at)
 		demo_on = false
-		## Pull out later so soil-stage growth (hola→prorostla→ziva) is readable.
-		if capture_at >= 600.0:
-			world.cam_zoom = minf(world.cam_zoom_target, C.CAM_ZOOM_OUT * 0.95)
-		elif capture_at >= 300.0:
-			world.cam_zoom = lerpf(C.CAM_ZOOM_IN, C.CAM_ZOOM_OUT, 0.4)
-		else:
-			world.cam_zoom = world.cam_zoom_target
+		## Snap to world growth zoom (progress/time in MyceliumWorld.update) — no capture-only override.
+		world.cam_zoom = world.cam_zoom_target
 	SwarmAudio.set_ambient("mycelium")
 	_atm = Atm.apply(self, "mycelium", camera, hud)
 	hud.visible = demo_on
