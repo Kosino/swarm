@@ -648,26 +648,42 @@ func _trigger_skeleton() -> void:
 	_bump_perform("skeleton")
 	## Skeleton nutrients densify depots (zásobárny).
 	_specialize_buildings(true)
+	## Zrnka tečou do všech zárodků najednou (12:25).
+	_emit_skeleton_grains(true)
+	rings.append({"x": skeleton.x, "y": skeleton.y, "t": 0.0, "big": true})
+
+
+func _emit_skeleton_grains(burst: bool = false) -> void:
+	if skeleton == null:
+		return
+	var per: int = 10 if burst else 3
+	if germs.is_empty():
+		if seed == null:
+			return
+		for i in range(16 if burst else 5):
+			var a2: float = _rnd() * PI * 2.0
+			grains.append({
+				"x": skeleton.x + cos(a2) * skeleton.r * 0.35,
+				"y": skeleton.y + sin(a2) * skeleton.r * 0.35,
+				"vx": (seed.x - skeleton.x) * (0.1 + _rnd() * 0.2),
+				"vy": (seed.y - skeleton.y) * (0.1 + _rnd() * 0.2),
+				"tx": seed.x, "ty": seed.y,
+				"life": 2.2 + _rnd(),
+				"gold": true,
+			})
+		return
 	for g in germs:
-		for i in range(10):
+		for i in range(per):
 			var a: float = _rnd() * PI * 2.0
 			grains.append({
 				"x": skeleton.x + cos(a) * skeleton.r * 0.4,
 				"y": skeleton.y + sin(a) * skeleton.r * 0.4,
 				"vx": (g.x - skeleton.x) * (0.1 + _rnd() * 0.2),
 				"vy": (g.y - skeleton.y) * (0.1 + _rnd() * 0.2),
+				"tx": g.x, "ty": g.y,
 				"life": 2.0 + _rnd(),
+				"gold": true,
 			})
-	if germs.is_empty() and seed != null:
-		for i in range(16):
-			var a2: float = _rnd() * PI * 2.0
-			grains.append({
-				"x": skeleton.x, "y": skeleton.y,
-				"vx": (seed.x - skeleton.x) * (0.1 + _rnd() * 0.2),
-				"vy": (seed.y - skeleton.y) * (0.1 + _rnd() * 0.2),
-				"life": 2.0 + _rnd(),
-			})
-	rings.append({"x": skeleton.x, "y": skeleton.y, "t": 0.0, "big": true})
 
 
 func _main_fruit_pos() -> Dictionary:
@@ -1563,7 +1579,11 @@ func update(dt: float) -> void:
 		g.life -= dt
 		g.x += g.vx * dt
 		g.y += g.vy * dt
-		if seed != null:
+		## Prefer explicit germ targets (skeleton 12:25); else nest pull.
+		if g.has("tx"):
+			g.vx += (float(g.tx) - g.x) * dt * 1.35
+			g.vy += (float(g.ty) - g.y) * dt * 1.35
+		elif seed != null:
 			g.vx += (seed.x - g.x) * dt * 1.2
 			g.vy += (seed.y - g.y) * dt * 1.2
 		if g.life <= 0.0:
@@ -1608,7 +1628,12 @@ func update(dt: float) -> void:
 	if infected != null and not infected.dead:
 		infected.grey = minf(1.0, infected.grey + dt * 0.08)
 	if skeleton != null and skeleton.encircled and skeleton.decay < 1.0:
+		var prev_dec: float = float(skeleton.decay)
 		skeleton.decay = minf(1.0, skeleton.decay + dt / 10.0)
+		## Ongoing grain rain across the 10s decomposition.
+		if int(prev_dec * 10.0) != int(float(skeleton.decay) * 10.0):
+			_emit_skeleton_grains(false)
+		network_gold = maxf(network_gold, 0.85)
 	if network_gold > 0.0:
 		network_gold = maxf(0.35, network_gold - dt * 0.02)
 	## Age 3 hold on main fruit → giant fruiting body.

@@ -56,6 +56,8 @@ var _prev_workers: int = 0
 var _prev_mite_alive: bool = false
 var _prev_mite_purged: bool = false
 var _had_seed: bool = false
+var _had_skeleton: bool = false
+var _skel_grain_cd: float = 0.0
 var _seen_rings: int = 0
 var help_open: bool = false
 var _view: Rect2 = Rect2()
@@ -169,11 +171,34 @@ func _ready() -> void:
 	camera.zoom = Vector2(zoom_target * world.cam_zoom, zoom_target * world.cam_zoom)
 	Atm.sync_light(_atm, camera.position)
 	Atm.sync_particles(_atm, camera.position)
-	Atm.set_myc_day(_atm, clampf(world.network_bright * 0.65 + world.network_pulse * 0.25, 0.0, 1.0))
+	Atm.set_myc_day(_atm, clampf(world.network_bright * 0.65 + world.network_pulse * 0.25 + world.network_gold * 0.2, 0.0, 1.0))
 	_refresh_hud()
 	queue_redraw()
 	if capture_at >= 0.0 and capture_out != "":
 		## Capture-only: Age 3 holds rarely complete under autoplay — force Seeds / ending chrome for stills.
+		## 12:25 skeleton — foreign net retreats, 10s decomposition + gold network.
+		if capture_at >= 740.0 and capture_at < 820.0:
+			if world.hint_time == null:
+				world._trigger_hint()
+			if world.infected == null:
+				world._begin_invasion()
+			if world.quarantine_time == null:
+				world._trigger_quarantine()
+			if world.skeleton_time == null:
+				world._trigger_skeleton()
+			## Pin mid-decay so stills read grain rain + golden hyphae.
+			if world.skeleton != null:
+				world.skeleton.decay = maxf(float(world.skeleton.decay), 0.45)
+			world.network_gold = maxf(world.network_gold, 0.95)
+			world.network_bright = maxf(world.network_bright, 0.85)
+			world.foreign_net = minf(world.foreign_net, 0.05)
+			world._emit_skeleton_grains(true)
+			for _settle_sk in range(10):
+				world.update(1.0 / 12.0)
+			_had_skeleton = true
+			if world.skeleton != null:
+				camera.position = Iso.world_to_iso(float(world.skeleton.x), float(world.skeleton.y)) + Vector2(0, -24)
+				camera.zoom = Vector2(0.95, 0.95)
 		if capture_at >= 820.0 and world.giant_fruit == null:
 			world._trigger_giant()
 			if world.giant_fruit != null:
@@ -301,7 +326,7 @@ func _process(dt: float) -> void:
 	var glow_e: float = 0.38 + world.network_bright * 0.28 + world.network_pulse * 0.2
 	Atm.sync_light(_atm, nest_iso, glow_e)
 	Atm.sync_particles(_atm, nest_iso)
-	Atm.set_myc_day(_atm, clampf(world.network_bright * 0.65 + world.network_pulse * 0.25, 0.0, 1.0))
+	Atm.set_myc_day(_atm, clampf(world.network_bright * 0.65 + world.network_pulse * 0.25 + world.network_gold * 0.2, 0.0, 1.0))
 	_refresh_hud()
 	queue_redraw()
 
@@ -556,6 +581,22 @@ func _tick_fx(dt: float) -> void:
 	_prev_mite_purged = world.mite_purged
 	_prev_pulse = world.network_pulse
 	_prev_bright = world.network_bright
+	## 12:25 skeleton — burst + ongoing gold grain juice during 10s decay.
+	if world.skeleton_time != null and not _had_skeleton:
+		_had_skeleton = true
+		if world.skeleton != null:
+			Juice.spawn_ripple(_juice, float(world.skeleton.x), float(world.skeleton.y), true, Color(1.15, 0.95, 0.45, 0.8))
+			Juice.spawn_pop(_juice, float(world.skeleton.x), float(world.skeleton.y), Color(1.2, 1.0, 0.5, 0.9), 0.55)
+			_spawn_fx("myc2_fx_spora", float(world.skeleton.x), float(world.skeleton.y) - 8.0, 1.2)
+	elif world.skeleton_time != null:
+		_had_skeleton = true
+	if world.skeleton != null and world.skeleton.encircled and float(world.skeleton.decay) < 1.0:
+		_skel_grain_cd -= dt
+		if _skel_grain_cd <= 0.0:
+			_skel_grain_cd = 0.09
+			var skx: float = float(world.skeleton.x) + (randf() - 0.5) * float(world.skeleton.r)
+			var sky: float = float(world.skeleton.y) + (randf() - 0.5) * float(world.skeleton.r) * 0.7
+			Juice.spawn_pop(_juice, skx, sky, Color(1.2, 0.95, 0.45, 0.55 + (1.0 - float(world.skeleton.decay)) * 0.3), 0.28)
 	var i := _fx.size() - 1
 	while i >= 0:
 		_fx[i].t += dt
@@ -573,6 +614,7 @@ func _draw() -> void:
 	_draw_soil()
 	_draw_hyphae()
 	_draw_entities()
+	_draw_grains()
 	_draw_fx()
 	_draw_juice()
 	_draw_edge_fog()
@@ -875,9 +917,11 @@ func _hypha_mean_th(ths: Array) -> float:
 func _draw_hyphae() -> void:
 	## Build 14 retune: ~8–15 arteries (6–14px), lime core #e8f25a + olive glow #6f8a2a.
 	## Secondaries thinner @ ~40% opacity. SwarmGfx quality/view cull preserved (Build 18).
-	var col_olive := Color(0.435, 0.541, 0.165) ## #6f8a2a
-	var col_lime := Color(0.910, 0.949, 0.353) ## #e8f25a
-	var bright: float = 1.0 + world.network_bright * 0.15
+	## 12:25 — network_gold shifts olive/lime → brass/gold (síť zezlátne).
+	var gold_u: float = clampf(world.network_gold, 0.0, 1.0)
+	var col_olive := Color(0.435, 0.541, 0.165).lerp(Color(0.62, 0.48, 0.18), gold_u) ## #6f8a2a → brass
+	var col_lime := Color(0.910, 0.949, 0.353).lerp(Color(1.15, 0.92, 0.42), gold_u) ## #e8f25a → gold
+	var bright: float = 1.0 + world.network_bright * 0.15 + gold_u * 0.12
 	var hyfa_tex: Texture2D = null
 	if SwarmGfx.hyfa_tex_accent():
 		if atlas.has("myc2_hyfa_silna_SE"):
@@ -1304,12 +1348,23 @@ func _draw_entities() -> void:
 			_blit("myc2_plodnice_dorostla", inf.x, inf.y, 0.62 if not _use_2x else 0.31, Color(0.55, 0.7, 0.45, 0.6 + inf.grey * 0.3))
 	if world.skeleton != null:
 		var sk = world.skeleton
-		var alpha: float = 0.85 * (1.0 - float(sk.decay) * 0.45)
+		var dec: float = float(sk.decay)
+		var alpha: float = 0.88 * (1.0 - dec * 0.55)
+		## Overgrowth tint as hyphae eat the wreck across 10s.
+		var sk_mod := Color(1.05, 1.02, 0.95, alpha).lerp(Color(0.85, 1.05, 0.55, alpha * 0.75), dec * 0.55)
+		if world.network_gold > 0.2:
+			sk_mod = sk_mod.lerp(Color(1.2, 1.0, 0.55, alpha), world.network_gold * 0.35)
 		if ProArt.has(pro, "myc_skeleton"):
 			## Tall ruin silhouette (koncept_pokrocila background wreck).
-			ProArt.blit(self, pro, "myc_skeleton", Iso.world_to_iso(sk.x, sk.y), 0.92 if not _use_2x else 0.46, Color(1.05, 1.02, 0.95, alpha))
+			ProArt.blit(self, pro, "myc_skeleton", Iso.world_to_iso(sk.x, sk.y), 0.92 if not _use_2x else 0.46, sk_mod)
 		elif atlas.has("myc2_kotva_dorostla"):
 			_blit("myc2_kotva_dorostla", sk.x, sk.y, 0.7 if not _use_2x else 0.35, Color(0.75, 0.7, 0.6, alpha))
+		## Soft gold aura while decomposing.
+		if sk.encircled and dec < 1.0:
+			var sk_iso := Iso.world_to_iso(sk.x, sk.y)
+			var aura: float = 0.12 + 0.18 * (1.0 - dec) * (0.6 + 0.4 * abs(sin(world.time * 2.2)))
+			draw_circle(sk_iso, float(sk.r) * 0.55, Color(1.15, 0.95, 0.4, aura * 0.35))
+			draw_arc(sk_iso, float(sk.r) * 0.7, 0, TAU, 36, Color(1.2, 1.0, 0.45, aura), 1.6)
 	## Seeds 14:40 — myc_seed_capsule is full plodnice+tobolka (same pivot); replace plain fruit.
 	var seeds_on: bool = world.seed_capsule != null
 	var use_tobolka: bool = seeds_on and ProArt.has(pro, "myc_seed_capsule")
@@ -1335,6 +1390,25 @@ func _draw_entities() -> void:
 		_draw_seeds_dim_overlay()
 		if seeds_on:
 			_draw_seed_capsule_hero()
+
+
+func _draw_grains() -> void:
+	## Nutrient grains — gold motes during skeleton 12:25; soft lime otherwise.
+	var max_g: int = 48 if SwarmGfx.q_level() == 0 else (28 if SwarmGfx.q_level() == 1 else 16)
+	var drawn := 0
+	for g in world.grains:
+		if drawn >= max_g:
+			break
+		if not SwarmGfx.iso_in_view(Iso.world_to_iso(float(g.x), float(g.y)), _view):
+			continue
+		var iso := Iso.world_to_iso(float(g.x), float(g.y))
+		var life_u: float = clampf(float(g.life) / 2.4, 0.0, 1.0)
+		var gold: bool = bool(g.get("gold", false)) or world.network_gold > 0.35
+		var col := Color(1.2, 1.0, 0.45, 0.55 + life_u * 0.4) if gold else Color(0.75, 1.05, 0.55, 0.45 + life_u * 0.35)
+		var r: float = 2.2 + life_u * 1.6
+		draw_circle(iso, r * 1.8, Color(col.r, col.g, col.b, col.a * 0.28))
+		draw_circle(iso, r, col)
+		drawn += 1
 
 
 func _draw_fx() -> void:

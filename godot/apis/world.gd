@@ -1043,6 +1043,13 @@ func _trigger_brass() -> void:
 	rust_machine.looted = true
 	brass_sheen = 1.0
 	core_pulse = 1.0
+	## Svítání — winter dusk clears; meadows bloom again (12:25).
+	dusk = 0.0
+	cold = 0.0
+	drought = 0.0
+	worker_slow = 1.0
+	rust_fall = 0.0
+	cluster_warm = 0.0
 	for ch in chambers.values():
 		if ch.grow >= 1.0:
 			ch.amber = minf(1.0, ch.amber + 0.35)
@@ -1051,8 +1058,28 @@ func _trigger_brass() -> void:
 	for f in flowers:
 		if not f.get("tree", false):
 			f.bloom = minf(1.0, f.bloom + 0.4)
+	## Dělnice haul shiny scrap from the distant machine into chambers.
+	_assign_scrap_haulers()
 	## Scrap metal founds brass workshops (dílny).
 	_specialize_buildings(true)
+
+
+func _assign_scrap_haulers() -> void:
+	if rust_machine == null:
+		return
+	var n: int = 0
+	for w in workers:
+		if n >= 7:
+			break
+		## Prefer clustered / idle workers; leave some on nectar routes.
+		if int(w.flower) >= 0 and _rnd() > 0.35:
+			continue
+		w.flower = -4
+		w.outbound = _rnd() < 0.55
+		w.carrying = not w.outbound
+		w.t = _rnd() * 0.85
+		w.phase = _rnd() * 6.0
+		n += 1
 
 
 func _trigger_royal() -> void:
@@ -1215,6 +1242,46 @@ func update(dt: float) -> void:
 				w.x = tx + cos(ang) * (14.0 + fmod(w.phase, 4.0))
 				w.y = ty + sin(ang) * (12.0 + fmod(w.phase, 3.0))
 			continue
+		if w.flower == -4 and rust_machine != null:
+			## Scrap haul — hive ↔ distant rust machine; carrying = shiny metal flakes.
+			var mx: float = float(rust_machine.x)
+			var my: float = float(rust_machine.y)
+			var mdist: float = G.hypot(mx - hc.x, my - hc.y)
+			var mspd: float = C.WORKER_SPEED * worker_slow * (0.92 if w.outbound else 0.78)
+			w.t += (mspd * dt) / maxf(60.0, mdist)
+			if w.outbound:
+				if w.t >= 1.0:
+					w.t = 0.0
+					w.outbound = false
+					w.carrying = true
+				var u_out: float = minf(1.0, w.t)
+				## Slight arc so the convoy reads as a trail to the machine.
+				var bend: float = sin(u_out * PI) * 18.0
+				w.x = hc.x + (mx - hc.x) * u_out + cos(w.phase) * bend * 0.15
+				w.y = hc.y + (my - hc.y) * u_out + sin(w.phase) * bend * 0.12
+			else:
+				if w.t >= 1.0:
+					w.t = 0.0
+					w.outbound = true
+					if w.carrying:
+						w.carrying = false
+						brass_sheen = maxf(brass_sheen, 0.85)
+						## Vestaví šupinky do komor — amber pulse on deposit.
+						var deposited := false
+						for ch_sc in chambers.values():
+							if ch_sc.grow < 1.0:
+								continue
+							ch_sc.amber = minf(1.0, ch_sc.amber + 0.18)
+							ch_sc.pulse = 1.0
+							deposited = true
+						if deposited:
+							core_pulse = maxf(core_pulse, 0.7)
+							pulses.append({"x0": w.x, "y0": w.y, "x1": hc.x, "y1": hc.y, "t": 0.0, "dur": 0.4})
+				var u_in: float = minf(1.0, w.t)
+				var bend2: float = sin(u_in * PI) * 14.0
+				w.x = mx + (hc.x - mx) * u_in + cos(w.phase + 1.2) * bend2 * 0.12
+				w.y = my + (hc.y - my) * u_in + sin(w.phase + 1.2) * bend2 * 0.1
+			continue
 		if w.flower < 0:
 			var ang2: float = w.phase * 0.8
 			var ox: float = hc.x + cos(ang2) * (22.0 + fmod(w.phase, 5.0))
@@ -1359,7 +1426,7 @@ func update(dt: float) -> void:
 		worker_slow = minf(worker_slow, lerpf(0.62, 0.42, drought))
 	elif drought > 0.0 and drought_relieved:
 		drought = maxf(0.0, drought - dt * 0.08)
-	if dusk > 0.0 and winter_time == null:
+	if dusk > 0.0 and winter_time == null and brass_time == null:
 		dusk = minf(1.0, dusk + dt / C.HINT_DUR)
 		cold = minf(1.0, cold + dt * 0.05)
 		worker_slow = lerpf(0.55, 0.35, cold)
@@ -1372,6 +1439,14 @@ func update(dt: float) -> void:
 		cluster_warm = maxf(0.0, cluster_warm - dt * 0.12)
 	if brass_sheen > 0.0:
 		brass_sheen = maxf(0.4, brass_sheen - dt * 0.015)
+	## Keep a few scrap haulers looping while brass sheen is hot.
+	if brass_time != null and rust_machine != null and brass_sheen > 0.55:
+		var scrap_n := 0
+		for w2 in workers:
+			if int(w2.flower) == -4:
+				scrap_n += 1
+		if scrap_n < 4:
+			_assign_scrap_haulers()
 	if floor2 and not buildings_specialized and time >= C.WOW_FLOOR2 + 8.0:
 		_specialize_buildings()
 	## Age 3 hold on core → royal cell / third floor.
