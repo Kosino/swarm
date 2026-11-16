@@ -1,0 +1,347 @@
+{
+  "myc_tex_puda_hola": {
+    "file": "textures/myc_tex_puda_hola.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "pivot": [
+      512,
+      512
+    ],
+    "notes": "tileable iso-compatible ground fill"
+  },
+  "myc_tex_puda_prorostla": {
+    "file": "textures/myc_tex_puda_prorostla.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "pivot": [
+      512,
+      512
+    ],
+    "notes": "tileable iso-compatible ground fill"
+  },
+  "myc_tex_puda_zarici": {
+    "file": "textures/myc_tex_puda_zarici.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "pivot": [
+      512,
+      512
+    ],
+    "notes": "tileable iso-compatible ground fill"
+  },
+  "apis_tex_louka_divoka": {
+    "file": "textures/apis_tex_louka_divoka.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "pivot": [
+      512,
+      512
+    ],
+    "notes": "tileable iso-compatible ground fill"
+  },
+  "apis_tex_louka_osazena": {
+    "file": "textures/apis_tex_louka_osazena.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "pivot": [
+      512,
+      512
+    ],
+    "notes": "tileable iso-compatible ground fill"
+  },
+  "apis_tex_louka_ziva": {
+    "file": "textures/apis_tex_louka_ziva.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "pivot": [
+      512,
+      512
+    ],
+    "notes": "tileable iso-compatible ground fill"
+  },
+  "apis_tex_skala": {
+    "file": "textures/apis_tex_skala.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "pivot": [
+      512,
+      512
+    ],
+    "notes": "tileable iso-compatible ground fill"
+  },
+  "apis_tex_skala_okraj": {
+    "file": "textures/apis_tex_skala_okraj.png",
+    "size": [
+      1024,
+      384
+    ],
+    "pivot": [
+      512,
+      8
+    ],
+    "notes": "tileable along X; rocky rim decal, alpha fades toward meadow-join (bottom). Place along world edge, rock side outward."
+  },
+  "myc_pro_brouk_infikovany": {
+    "file": "sprites/myc_pro_brouk_infikovany.png",
+    "file_2x": "sprites/myc_pro_brouk_infikovany_2x.png",
+    "size": [
+      182,
+      216
+    ],
+    "pivot": [
+      91.0,
+      212.0
+    ],
+    "size_2x": [
+      364,
+      432
+    ],
+    "pivot_2x": [
+      182.0,
+      424.0
+    ],
+    "notes": "infikovaný brouk, Age-3"
+  },
+  "myc_pro_stroj_infikovany": {
+    "file": "sprites/myc_pro_stroj_infikovany.png",
+    "file_2x": "sprites/myc_pro_stroj_infikovany_2x.png",
+    "size": [
+      178,
+      236
+    ],
+    "pivot": [
+      89.0,
+      232.0
+    ],
+    "size_2x": [
+      356,
+      472
+    ],
+    "pivot_2x": [
+      178.0,
+      464.0
+    ],
+    "notes": "infikovaný stroj, Age-3"
+  },
+  "myc_pro_skelet": {
+    "file": "sprites/myc_pro_skelet.png",
+    "file_2x": "sprites/myc_pro_skelet_2x.png",
+    "size": [
+      166,
+      276
+    ],
+    "pivot": [
+      83.0,
+      272.0
+    ],
+    "size_2x": [
+      332,
+      552
+    ],
+    "pivot_2x": [
+      166.0,
+      544.0
+    ],
+    "notes": "obří kostra stroje, největší tvar, Age-3 12:25"
+  },
+  "myc_pro_plodnice_obri": {
+    "file": "sprites/myc_pro_plodnice_obri.png",
+    "file_2x": "sprites/myc_pro_plodnice_obri_2x.png",
+    "size": [
+      154,
+      300
+    ],
+    "pivot": [
+      76.89873417721519,
+      296.2025316455696
+    ],
+    "size_2x": [
+      308,
+      600
+    ],
+    "pivot_2x": [
+      153.79746835443038,
+      592.4050632911392
+    ],
+    "notes": "obří plodnice, Age-3 13:40"
+  },
+  "myc_pro_plodnice_obri_tobolka": {
+    "file": "sprites/myc_pro_plodnice_obri_tobolka.png",
+    "file_2x": "sprites/myc_pro_plodnice_obri_tobolka_2x.png",
+    "size": [
+      154,
+      300
+    ],
+    "pivot": [
+      76.89873417721519,
+      296.2025316455696
+    ],
+    "size_2x": [
+      308,
+      600
+    ],
+    "pivot_2x": [
+      153.79746835443038,
+      592.4050632911392
+    ],
+    "notes": "obří plodnice se zářící tobolkou, Age-3 14:40; stejný pivot jako myc_pro_plodnice_obri"
+  },
+  "apis_pro_stroj_rezavy": {
+    "file": "sprites/apis_pro_stroj_rezavy.png",
+    "file_2x": "sprites/apis_pro_stroj_rezavy_2x.png",
+    "size": [
+      210,
+      276
+    ],
+    "pivot": [
+      105.0,
+      272.0
+    ],
+    "size_2x": [
+      420,
+      552
+    ],
+    "pivot_2x": [
+      210.0,
+      544.0
+    ],
+    "notes": "rezavý stroj, Age-3"
+  },
+  "apis_pro_strom_kvet": {
+    "file": "sprites/apis_pro_strom_kvet.png",
+    "file_2x": "sprites/apis_pro_strom_kvet_2x.png",
+    "size": [
+      182,
+      300
+    ],
+    "pivot": [
+      90.18987341772151,
+      296.2025316455696
+    ],
+    "size_2x": [
+      362,
+      600
+    ],
+    "pivot_2x": [
+      180.37974683544303,
+      592.4050632911392
+    ],
+    "notes": "kvetoucí strom, max výška 1× ~300 px"
+  },
+  "apis_pro_kralovna": {
+    "file": "sprites/apis_pro_kralovna.png",
+    "file_2x": "sprites/apis_pro_kralovna_2x.png",
+    "size": [
+      76,
+      94
+    ],
+    "pivot": [
+      38.0,
+      90.0
+    ],
+    "size_2x": [
+      152,
+      188
+    ],
+    "pivot_2x": [
+      76.0,
+      180.0
+    ],
+    "notes": "královna, iso 3/4, větší než dělnice"
+  },
+  "apis_pro_kukla": {
+    "file": "sprites/apis_pro_kukla.png",
+    "file_2x": "sprites/apis_pro_kukla_2x.png",
+    "size": [
+      134,
+      216
+    ],
+    "pivot": [
+      66.0,
+      212.0
+    ],
+    "size_2x": [
+      266,
+      432
+    ],
+    "pivot_2x": [
+      132.0,
+      424.0
+    ],
+    "notes": "královská kukla / zavíčkovaná buňka se září"
+  },
+  "logo_swarm": {
+    "file": "menu/logo_swarm.png",
+    "size": [
+      1024,
+      350
+    ],
+    "pivot": [
+      512.0,
+      175.0
+    ],
+    "notes": "transparent wordmark SWARM, brass/chitin; center pivot"
+  },
+  "logo_swarm_sm": {
+    "file": "menu/logo_swarm_sm.png",
+    "size": [
+      512,
+      176
+    ],
+    "pivot": [
+      256.0,
+      88.0
+    ],
+    "notes": "smaller logo (512 px wide)"
+  },
+  "menu_dual": {
+    "file": "menu/menu_dual.png",
+    "size": [
+      1920,
+      1080
+    ],
+    "pivot": [
+      960,
+      540
+    ],
+    "notes": "výběr Rodu / dvojí svět, klidné pásy nahoře a dole pro logo a UI"
+  },
+  "menu_apis": {
+    "file": "menu/menu_apis.png",
+    "size": [
+      1920,
+      1080
+    ],
+    "pivot": [
+      960,
+      540
+    ],
+    "notes": "pozadí Apis, klidná zóna vlevo a dole pro UI"
+  },
+  "menu_mycelium": {
+    "file": "menu/menu_mycelium.png",
+    "size": [
+      1920,
+      1080
+    ],
+    "pivot": [
+      960,
+      540
+    ],
+    "notes": "pozadí Mycelium, klidná zóna vlevo pro UI"
+  }
+}
