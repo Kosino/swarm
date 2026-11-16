@@ -29,5 +29,6 @@ godot --headless --path godot --script res://apis/headless.gd
 - Web entry: `/godot/` (menu). Direct rods: `/godot/?rod=apis` / `?rod=mycelium`. Canvas sketch stays at `/`.
 - Windows: CI artifact `swarm-windows` + GitHub Release zip on `v*` tags.
 - Esc → menu (autosave). Continue icon on choose screen when a run is saved.
+- Menu gear: graphics quality / resolution / fullscreen. `H` / `?`: keybind help.
 - Art: `godot/art/mycelium_iso_v2/`, `godot/art/apis_iso_v2/` (v1 packs kept as reference).
 

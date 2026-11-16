@@ -1,4 +1,5 @@
 ## Build #9–#12 main menu — branded title → rod choice → dive.
+## Build #18 — graphics settings + keybind help.
 extends Node2D
 
 const ProArt = preload("res://ui/pro_art.gd")
@@ -22,6 +23,10 @@ var _prev_continue_hover: bool = false
 var pro: Dictionary = {}
 var _title_font: Font
 var _body_font: Font
+var settings_open: bool = false
+var help_open: bool = false
+var gfx: Dictionary = {}
+var settings_hover: String = "" ## "gear" | "quality" | "resolution" | "fullscreen" | "close" | ""
 
 const COL_BG := Color(0.04, 0.05, 0.06)
 const COL_APIS := Color(0.92, 0.72, 0.28)
@@ -35,6 +40,8 @@ func _ready() -> void:
 	texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	_title_font = STheme.title_font()
 	_body_font = STheme.body_font()
+	gfx = SwarmGfx.load_gfx()
+	SwarmGfx.apply(gfx)
 	var args = OS.get_cmdline_user_args()
 	if "--sim" in args or "sim" in args:
 		get_tree().change_scene_to_file("res://scenes/main.tscn")
@@ -185,25 +192,94 @@ func _set_volume_from_x(x: float) -> void:
 	SwarmAudio.set_ambient("menu" if hover == "" else hover)
 
 
+func _gear_pos() -> Vector2:
+	## Left of volume slider so icons don't overlap the track.
+	var vp := get_viewport_rect().size
+	return Vector2(vp.x - 190.0, 36.0)
+
+
+func _help_pos() -> Vector2:
+	var vp := get_viewport_rect().size
+	return Vector2(vp.x - 232.0, 36.0)
+
+
 func _continue_pos() -> Vector2:
 	var vp := get_viewport_rect().size
 	return Vector2(vp.x * 0.5, vp.y - 56.0)
 
 
+func _settings_panel() -> Rect2:
+	var vp := get_viewport_rect().size
+	return Rect2(vp.x * 0.5 - 200.0, vp.y * 0.5 - 140.0, 400.0, 280.0)
+
+
+func _settings_row_rect(i: int) -> Rect2:
+	var p := _settings_panel()
+	return Rect2(p.position.x + 24.0, p.position.y + 72.0 + float(i) * 44.0, p.size.x - 48.0, 36.0)
+
+
+func _hit_settings(mp: Vector2) -> String:
+	if not settings_open:
+		return ""
+	var p := _settings_panel()
+	if not p.has_point(mp):
+		return "outside"
+	if Rect2(p.position + Vector2(p.size.x - 40.0, 12.0), Vector2(28, 28)).has_point(mp):
+		return "close"
+	if _settings_row_rect(0).has_point(mp):
+		return "quality"
+	if _settings_row_rect(1).has_point(mp):
+		return "resolution"
+	if _settings_row_rect(2).has_point(mp):
+		return "fullscreen"
+	return "panel"
+
+
+func _persist_gfx() -> void:
+	SwarmGfx.save_gfx(str(gfx.quality), str(gfx.resolution), bool(gfx.fullscreen))
+	SwarmGfx.apply(gfx)
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		var k: int = event.physical_keycode
+		if k == KEY_ESCAPE:
+			if help_open:
+				help_open = false
+				return
+			if settings_open:
+				settings_open = false
+				return
+		if k == KEY_H or k == KEY_SLASH:
+			if settings_open:
+				settings_open = false
+			help_open = not help_open
+			return
 	if event is InputEventMouseMotion:
 		var mp := (event as InputEventMouseMotion).position
+		if settings_open:
+			settings_hover = _hit_settings(mp)
+			hover = ""
+			continue_hover = false
+			return
 		if vol_drag and phase == Phase.CHOOSE:
 			_set_volume_from_x(mp.x)
 			return
 		hover = _hit_rod(mp)
 		continue_hover = continue_available and phase == Phase.CHOOSE and mp.distance_to(_continue_pos()) < 28.0
+		settings_hover = ""
+		if mp.distance_to(_gear_pos()) < 20.0:
+			settings_hover = "gear"
+		elif mp.distance_to(_help_pos()) < 20.0:
+			settings_hover = "help"
 		if phase == Phase.CHOOSE:
 			if hover != _prev_hover and hover != "":
 				SwarmAudio.play_ui("hover")
 			elif continue_hover and not _prev_continue_hover:
 				SwarmAudio.play_ui("hover")
-		_prev_hover = hover
+			elif settings_hover != "" and settings_hover != _prev_hover:
+				SwarmAudio.play_ui("hover")
+		_prev_hover = hover if hover != "" else settings_hover
 		_prev_continue_hover = continue_hover
 	elif event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
@@ -211,6 +287,24 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if not mb.pressed:
 			vol_drag = false
+			return
+		if help_open:
+			help_open = false
+			return
+		if settings_open:
+			var hit := _hit_settings(mb.position)
+			match hit:
+				"close", "outside":
+					settings_open = false
+				"quality":
+					gfx.quality = SwarmGfx.cycle_quality(str(gfx.quality))
+					_persist_gfx()
+				"resolution":
+					gfx.resolution = SwarmGfx.cycle_resolution(str(gfx.resolution))
+					_persist_gfx()
+				"fullscreen":
+					gfx.fullscreen = not bool(gfx.fullscreen)
+					_persist_gfx()
 			return
 		if phase == Phase.TITLE:
 			SwarmAudio.play_ui("click")
@@ -227,6 +321,16 @@ func _unhandled_input(event: InputEvent) -> void:
 					_set_volume_from_x(mb.position.x)
 					SwarmAudio.play_ui("tick")
 				SwarmAudio.set_ambient("menu" if hover == "" else hover)
+				return
+			if mb.position.distance_to(_gear_pos()) < 22.0:
+				SwarmAudio.play_ui("click")
+				settings_open = true
+				help_open = false
+				return
+			if mb.position.distance_to(_help_pos()) < 22.0:
+				SwarmAudio.play_ui("click")
+				help_open = true
+				settings_open = false
 				return
 			if continue_available and mb.position.distance_to(_continue_pos()) < 28.0:
 				SwarmAudio.play_ui("click")
@@ -316,6 +420,8 @@ func _draw() -> void:
 
 	if phase == Phase.CHOOSE:
 		_draw_volume_icon(_volume_pos())
+		_draw_gear_icon(_gear_pos(), settings_hover == "gear" or settings_open)
+		_draw_help_icon(_help_pos(), settings_hover == "help" or help_open)
 		if continue_available:
 			_draw_continue_icon(_continue_pos(), continue_hover)
 		## Branded rod icons — brighten on hover.
@@ -330,6 +436,11 @@ func _draw() -> void:
 		var wash := Color(COL_APIS.r, COL_APIS.g, COL_APIS.b, dive_t * 0.55) if dive_rod == "apis" \
 			else Color(COL_MYC.r, COL_MYC.g, COL_MYC.b, dive_t * 0.55)
 		draw_rect(Rect2(Vector2.ZERO, vp), wash)
+
+	if settings_open:
+		_draw_settings_panel()
+	if help_open:
+		SwarmGfx.draw_help(self, _body_font if _body_font else _title_font, vp)
 
 
 func _draw_logo(at: Vector2, alpha: float) -> void:
@@ -363,6 +474,49 @@ func _draw_volume_icon(ic: Vector2) -> void:
 		## Arc fill shows level (no text).
 		var sweep: float = TAU * clampf(vol, 0.0, 1.0)
 		draw_arc(ic, 9.0, -PI * 0.5, -PI * 0.5 + sweep, 18, Color(0.85, 0.88, 0.8, 0.9), 2.0)
+
+
+func _draw_gear_icon(ic: Vector2, hot: bool) -> void:
+	var a: float = 0.95 if hot else 0.7
+	var col := Color(0.8, 0.84, 0.76, a)
+	draw_arc(ic, 14.0, 0, TAU, 24, col, 1.5)
+	draw_arc(ic, 7.0, 0, TAU, 18, col, 1.6)
+	for i in range(6):
+		var ang: float = float(i) * TAU / 6.0
+		var a0 := ic + Vector2(cos(ang), sin(ang)) * 9.0
+		var a1 := ic + Vector2(cos(ang), sin(ang)) * 13.0
+		draw_line(a0, a1, col, 2.0)
+
+
+func _draw_help_icon(ic: Vector2, hot: bool) -> void:
+	var a: float = 0.95 if hot else 0.7
+	var col := Color(0.8, 0.84, 0.76, a)
+	draw_arc(ic, 14.0, 0, TAU, 24, col, 1.5)
+	var font: Font = _body_font if _body_font else ThemeDB.fallback_font
+	draw_string(font, ic + Vector2(-5, 6), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, col)
+
+
+func _draw_settings_panel() -> void:
+	var p := _settings_panel()
+	var font: Font = _body_font if _body_font else ThemeDB.fallback_font
+	var title: Font = _title_font if _title_font else font
+	draw_rect(p, Color(0.05, 0.06, 0.05, 0.88), true)
+	draw_rect(p, Color(0.75, 0.8, 0.7, 0.55), false, 1.5)
+	draw_string(title, p.position + Vector2(24, 36), "Nastavení", HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.92, 0.94, 0.88))
+	draw_string(font, p.position + Vector2(p.size.x - 30, 34), "×", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(0.85, 0.5, 0.45) if settings_hover == "close" else Color(0.7, 0.74, 0.68))
+	var rows := [
+		{"key": "quality", "label": "Grafika", "value": SwarmGfx.quality_label(str(gfx.quality))},
+		{"key": "resolution", "label": "Rozlišení", "value": SwarmGfx.resolution_label(str(gfx.resolution))},
+		{"key": "fullscreen", "label": "Celá obrazovka", "value": "Ano" if bool(gfx.fullscreen) else "Ne"},
+	]
+	for i in range(rows.size()):
+		var row: Dictionary = rows[i]
+		var rr := _settings_row_rect(i)
+		var hot: bool = settings_hover == str(row.key)
+		draw_rect(rr, Color(0.12, 0.14, 0.12, 0.75 if hot else 0.45), true)
+		draw_string(font, rr.position + Vector2(12, 24), str(row.label), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.82, 0.86, 0.8))
+		draw_string(font, rr.position + Vector2(rr.size.x - 120, 24), str(row.value), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.95, 0.9, 0.7) if hot else Color(0.88, 0.9, 0.84))
+	draw_string(font, p.position + Vector2(24, p.size.y - 22), "Kliknutím přepneš · H = ovládání", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.6, 0.65, 0.58, 0.8))
 
 
 func _draw_continue_icon(at: Vector2, hot: bool) -> void:

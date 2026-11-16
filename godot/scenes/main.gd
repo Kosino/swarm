@@ -1,4 +1,5 @@
 ## Isometric Mycelium — Build 12 pro art (seamless ground, atmosphere, branded UI).
+## Build #18 — draw budget / settings / keybind help.
 extends Node2D
 
 const C = preload("res://mycelium/config.gd")
@@ -50,6 +51,10 @@ var _prev_anchors: int = 0
 var _prev_workers: int = 0
 var _had_seed: bool = false
 var _seen_rings: int = 0
+var help_open: bool = false
+var _view: Rect2 = Rect2()
+var _body_font: Font
+var _help_draw: Node2D
 
 
 func _resolve_rod() -> String:
@@ -87,6 +92,9 @@ func _ready() -> void:
 	if "--demo" in args or "demo" in args:
 		demo_on = true
 	## Diegetic default — debug HUD only via F1 (also on web).
+	SwarmGfx.apply()
+	_body_font = STheme.body_font()
+	_setup_help_layer()
 
 	_use_2x = DisplayServer.screen_get_scale() >= 1.5
 	atlas = Atlas.load_all(_use_2x)
@@ -154,6 +162,23 @@ func _ready() -> void:
 			img.save_png(capture_out)
 			print("capture_saved ", capture_out)
 		get_tree().quit()
+
+
+func _setup_help_layer() -> void:
+	var layer := CanvasLayer.new()
+	layer.name = "HelpOverlay"
+	layer.layer = 90
+	_help_draw = Node2D.new()
+	_help_draw.name = "HelpDraw"
+	_help_draw.set_script(load("res://ui/help_overlay.gd"))
+	layer.add_child(_help_draw)
+	add_child(layer)
+
+
+func _set_help(open: bool) -> void:
+	help_open = open
+	if _help_draw and _help_draw.has_method("set_open"):
+		_help_draw.call("set_open", open)
 
 
 func _catch_up(target: float) -> void:
@@ -257,9 +282,17 @@ func _fmt_clock(t: float) -> String:
 func _unhandled_input(event: InputEvent) -> void:
 	if world == null:
 		return
-	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_ESCAPE:
-		_return_menu(false)
-		return
+	if event is InputEventKey and event.pressed and not event.echo:
+		var k: int = event.physical_keycode
+		if k == KEY_ESCAPE:
+			if help_open:
+				_set_help(false)
+				return
+			_return_menu(false)
+			return
+		if k == KEY_H or k == KEY_SLASH:
+			_set_help(not help_open)
+			return
 	if event.is_action_pressed("toggle_demo"):
 		demo_on = not demo_on
 		hud.visible = demo_on
@@ -422,6 +455,7 @@ func _tick_fx(dt: float) -> void:
 func _draw() -> void:
 	if world == null:
 		return
+	_view = SwarmGfx.view_bounds(camera)
 	_draw_ground_base()
 	_draw_soil()
 	_draw_hyphae()
@@ -469,25 +503,28 @@ func _draw_ground_base() -> void:
 			base = t_pro
 		draw_texture_rect(base, fill, true)
 		var cell: float = 480.0
-		var step: float = 240.0
+		var step: float = 240.0 * SwarmGfx.ground_overlay_step_mul()
 		var x0: float = c.x - 2200.0
 		var y0: float = c.y - 1400.0
 		var nx: int = int(ceil(4400.0 / step)) + 1
 		var ny: int = int(ceil(2800.0 / step)) + 1
 		var nest_iso := Iso.world_to_iso(_nest().x, _nest().y)
+		var ql: int = SwarmGfx.q_level()
 		for iy in range(ny):
 			for ix in range(nx):
 				var cx: float = x0 + float(ix) * step + cell * 0.5
 				var cy: float = y0 + float(iy) * step + cell * 0.5
+				if not SwarmGfx.iso_in_view(Vector2(cx, cy), _view):
+					continue
 				var h0: float = _hash2(ix, iy)
 				var rot: float = float(int(h0 * 4.0) % 4) * PI * 0.5
 				var d_iso: float = Vector2(cx, cy).distance_to(nest_iso)
 				if t_pro != null and base == t_hola and reach > 100.0 and h0 > 0.4:
 					_draw_tex_cell(t_pro, Vector2(cx, cy), cell, rot, Color(1, 1, 1, 0.2 + 0.12 * h0))
-				if t_hola != null and base != t_hola and _hash2(ix + 3, iy + 5) > 0.6:
+				if ql < 2 and t_hola != null and base != t_hola and _hash2(ix + 3, iy + 5) > 0.6:
 					_draw_tex_cell(t_hola, Vector2(cx, cy), cell * 0.9, rot + PI * 0.5, Color(1, 1, 1, 0.14))
 				## Late-game living soil wash — very soft, rotated, near nest only (no hatch carpet).
-				if t_zar != null and reach > 280.0 and d_iso < 380.0 and world.network_bright > 0.2 and h0 > 0.72:
+				if ql == 0 and t_zar != null and reach > 280.0 and d_iso < 380.0 and world.network_bright > 0.2 and h0 > 0.72:
 					var a: float = 0.05 + 0.07 * world.network_bright * (1.0 - clampf(d_iso / 380.0, 0.0, 1.0))
 					_draw_tex_cell(t_zar, Vector2(cx, cy), cell * 0.7, rot + PI, Color(1, 1, 1, a))
 	else:
@@ -514,13 +551,17 @@ func _draw_soil() -> void:
 	var tile: float = float(C.SOIL_TILE)
 	var sc: float = _tile_sc()
 	var has_fill: bool = ProArt.has(pro, "myc_tex_puda_hola")
+	var sparse_mod: int = SwarmGfx.soil_sparse_mod()
 	for ty in range(rows):
 		for tx in range(cols):
 			## Sparse soil stage sprites — keep pusta/prorostla/ziva readable over time (no prorust hatch).
-			if has_fill and ((tx * 5 + ty * 11) % 5) != 0:
+			if has_fill and ((tx * 5 + ty * 11) % sparse_mod) != 0:
 				continue
 			var wx: float = (float(tx) + 0.5) * tile
 			var wy: float = (float(ty) + 0.5) * tile
+			var iso0 := Iso.world_to_iso(wx, wy)
+			if not SwarmGfx.iso_in_view(iso0, _view):
+				continue
 			var idx: int = int(world.soil_tiles[ty * cols + tx]) if ty * cols + tx < world.soil_tiles.size() else 0
 			var variant: String = ["a", "b", "c"][clampi(idx, 0, 2)]
 			var stage: String = _terrain_stage(wx, wy)
@@ -533,8 +574,7 @@ func _draw_soil() -> void:
 					a = 0.38 if has_fill else 1.0
 				_blit(n, wx, wy, sc, Color(1, 1, 1, a))
 			elif not has_fill:
-				var iso := Iso.world_to_iso(wx, wy)
-				draw_colored_polygon(_diamond_at(iso, tile * 0.56, tile * 0.28), Color(0.16 + 0.03 * idx, 0.2 + 0.02 * idx, 0.11, 1.0))
+				draw_colored_polygon(_diamond_at(iso0, tile * 0.56, tile * 0.28), Color(0.16 + 0.03 * idx, 0.2 + 0.02 * idx, 0.11, 1.0))
 			## No myc2_overlay_prorust — hatch patches stay gone.
 
 
@@ -553,16 +593,20 @@ func _draw_ground_decals() -> void:
 	if present.is_empty():
 		return
 	var sc: float = 0.42 if not _use_2x else 0.22
-	for i in range(48):
+	var decal_n: int = SwarmGfx.decal_count()
+	for i in range(decal_n):
 		var ang: float = float(i) * 2.399963
 		var rad: float = 55.0 + fmod(float(i * 47), 380.0)
 		var wx: float = nest.x + cos(ang) * rad
 		var wy: float = nest.y + sin(ang) * rad * 0.72
 		if wx < -40.0 or wy < -40.0 or wx > float(C.W) + 40.0 or wy > float(C.H) + 40.0:
 			continue
+		var iso_d := Iso.world_to_iso(wx, wy)
+		if not SwarmGfx.iso_in_view(iso_d, _view):
+			continue
 		var key: String = present[i % present.size()]
 		var a: float = 0.55 if i % 4 == 0 else 0.38
-		ProArt.blit(self, pro, key, Iso.world_to_iso(wx, wy), sc * (0.85 + float(i % 5) * 0.06), Color(1, 1, 1, a))
+		ProArt.blit(self, pro, key, iso_d, sc * (0.85 + float(i % 5) * 0.06), Color(1, 1, 1, a))
 
 
 func _diamond_at(center: Vector2, half_w: float, half_h: float) -> PackedVector2Array:
@@ -672,14 +716,18 @@ func _draw_ribbon(iso_pts: PackedVector2Array, half_w: PackedFloat32Array, col: 
 
 func _draw_hyphae() -> void:
 	## One smooth curved strip per tip-chain — Catmull-Rom + noise, no hatch/parallel sprites.
+	## Build #18: quality-scaled ribbon passes + view cull + coarser resample.
 	var bright: float = 1.0 + world.network_bright * 0.4
 	var hyfa_tex: Texture2D = null
-	if atlas.has("myc2_hyfa_silna_SE"):
-		hyfa_tex = atlas["myc2_hyfa_silna_SE"].texture
-	elif atlas.has("myc2_hyfa_stredni_SE"):
-		hyfa_tex = atlas["myc2_hyfa_stredni_SE"].texture
+	if SwarmGfx.hyfa_tex_accent():
+		if atlas.has("myc2_hyfa_silna_SE"):
+			hyfa_tex = atlas["myc2_hyfa_silna_SE"].texture
+		elif atlas.has("myc2_hyfa_stredni_SE"):
+			hyfa_tex = atlas["myc2_hyfa_stredni_SE"].texture
 	var drawn_chains := 0
-	var max_chains := 48
+	var max_chains := SwarmGfx.max_hypha_chains()
+	var passes: int = SwarmGfx.ribbon_passes()
+	var step_r: float = SwarmGfx.ribbon_resample_step()
 	## Prefer thicker tips first so trunks read clearly.
 	var tip_order: Array = []
 	for ti in range(world.tips.size()):
@@ -708,21 +756,39 @@ func _draw_hyphae() -> void:
 			si = int(s.p)
 		if pts.size() < 2:
 			continue
+		## Cull only when the whole chain misses the view (tip-only cull drops nest ribbons).
+		var any_in := false
+		var stride: int = maxi(1, pts.size() / 8)
+		var pi := 0
+		while pi < pts.size():
+			var pw: Vector2 = pts[pi]
+			if SwarmGfx.iso_in_view(Iso.world_to_iso(pw.x, pw.y), _view):
+				any_in = true
+				break
+			pi += stride
+		if not any_in:
+			continue
 		pts.reverse()
 		ths.reverse()
 		## Ensure ths aligned to segments between pts.
 		while ths.size() < pts.size() - 1:
 			ths.append(0)
-		var sampled: Dictionary = _resample_catmull(pts, ths, 6.0)
+		var sampled: Dictionary = _resample_catmull(pts, ths, step_r)
 		var iso_pts: PackedVector2Array = sampled.pts
 		var half_w: PackedFloat32Array = sampled.hw
 		if iso_pts.size() < 2:
 			continue
-		## Additive yellow-green glow stack — soft outer, bright core.
-		_draw_ribbon(iso_pts, half_w, Color(0.45, 0.95, 0.4, 0.10 * bright), 2.6)
-		_draw_ribbon(iso_pts, half_w, Color(0.75, 1.15, 0.45, 0.18 * bright), 1.55)
-		_draw_ribbon(iso_pts, half_w, Color(1.15, 1.45, 0.55, 0.42 * bright), 1.0)
-		_draw_ribbon(iso_pts, half_w, Color(1.55, 1.85, 0.7, 0.55 * bright), 0.38)
+		## Additive yellow-green glow stack — soft outer, bright core (batched by quality).
+		if passes >= 4:
+			_draw_ribbon(iso_pts, half_w, Color(0.45, 0.95, 0.4, 0.10 * bright), 2.6)
+			_draw_ribbon(iso_pts, half_w, Color(0.75, 1.15, 0.45, 0.18 * bright), 1.55)
+			_draw_ribbon(iso_pts, half_w, Color(1.15, 1.45, 0.55, 0.42 * bright), 1.0)
+			_draw_ribbon(iso_pts, half_w, Color(1.55, 1.85, 0.7, 0.55 * bright), 0.38)
+		elif passes >= 2:
+			_draw_ribbon(iso_pts, half_w, Color(0.55, 1.0, 0.42, 0.16 * bright), 2.1)
+			_draw_ribbon(iso_pts, half_w, Color(1.25, 1.55, 0.6, 0.48 * bright), 0.85)
+		else:
+			_draw_ribbon(iso_pts, half_w, Color(1.05, 1.4, 0.55, 0.5 * bright), 1.15)
 		## Optional textured accent using iso_v2 hyfa sprite as ribbon UV wash.
 		if hyfa_tex != null and iso_pts.size() >= 2:
 			var mid_i: int = iso_pts.size() / 2
@@ -732,16 +798,20 @@ func _draw_hyphae() -> void:
 			draw_texture_rect(hyfa_tex, Rect2(mid - Vector2(hw_m * 2.0, hw_m), Vector2(hw_m * 4.0, hw_m * 2.0)), false, Color(1.2, 1.4, 0.7, a))
 		drawn_chains += 1
 	## Sparse organic node accents only (not hatch).
-	if ProArt.has(pro, "myc_decal_hyfa_chomac"):
+	if SwarmGfx.q_level() < 2 and ProArt.has(pro, "myc_decal_hyfa_chomac"):
 		var shown := 0
 		var j := 0
+		var max_nodes: int = 18 if SwarmGfx.q_level() == 0 else 10
 		for s2 in world.segs:
 			j += 1
 			if int(s2.th) < 2 or (j % 7) != 0:
 				continue
-			ProArt.blit(self, pro, "myc_decal_hyfa_chomac", Iso.world_to_iso(s2.x1, s2.y1), 0.26 if not _use_2x else 0.13, Color(1.1, 1.35, 0.85, 0.35))
+			var iso_n := Iso.world_to_iso(s2.x1, s2.y1)
+			if not SwarmGfx.iso_in_view(iso_n, _view):
+				continue
+			ProArt.blit(self, pro, "myc_decal_hyfa_chomac", iso_n, 0.26 if not _use_2x else 0.13, Color(1.1, 1.35, 0.85, 0.35))
 			shown += 1
-			if shown > 18:
+			if shown > max_nodes:
 				break
 
 
@@ -760,16 +830,19 @@ func _draw_entities() -> void:
 	for p in world.patches:
 		if not p.on and p.lit < 0.05 and not p.get("big", false):
 			continue
+		if not SwarmGfx.iso_in_view(Iso.world_to_iso(p.x, p.y), _view):
+			continue
 		var stage := _kotva_stage(p)
 		var name := "myc2_kotva_%s" % stage
 		var sc := 0.55 if p.get("big", false) else 0.4
 		if _use_2x:
 			sc *= 0.5
-		_draw_soft_shadow(p.x, p.y, 14.0 if p.get("big", false) else 9.0, 0.22 + p.lit * 0.12)
+		if SwarmGfx.soft_shadows():
+			_draw_soft_shadow(p.x, p.y, 14.0 if p.get("big", false) else 9.0, 0.22 + p.lit * 0.12)
 		if atlas.has(name):
 			_blit(name, p.x, p.y, sc, Color(1, 1, 1, 0.55 + p.lit * 0.4))
 			## Soft zariva bloom only — never prorust hatch overlays.
-			if stage == "zariva" and atlas.has("myc2_overlay_zare") and p.lit > 0.7:
+			if stage == "zariva" and atlas.has("myc2_overlay_zare") and p.lit > 0.7 and SwarmGfx.q_level() == 0:
 				_blit("myc2_overlay_zare", p.x, p.y, sc * 0.7, Color(1.1, 1.25, 1.05, 0.08 + p.lit * 0.06))
 		else:
 			_draw_box_fallback(p.x, p.y, p.r * 0.7, Color(0.35, 0.7, 0.45, 0.85))
@@ -823,15 +896,22 @@ func _draw_entities() -> void:
 		else:
 			draw_circle(Iso.world_to_iso(world.seed.x, world.seed.y), 6.0, Color(0.5, 0.9, 0.6))
 
-	## Translucent yellow-green spores/workers — ~50% smaller, spaced (~1 / 40px hypha).
+	## Translucent yellow-green spores/workers — spaced + capped by graphics quality.
 	var drawn_workers: Array = []
+	var spacing: float = SwarmGfx.worker_spacing()
+	var max_w: int = SwarmGfx.max_workers_drawn()
 	for w in world.workers:
+		if drawn_workers.size() >= max_w:
+			break
 		var pos = world.worker_pos(w)
 		var px: float = float(pos.x)
 		var py: float = float(pos.y)
+		var iso_w := Iso.world_to_iso(px, py)
+		if not SwarmGfx.iso_in_view(iso_w, _view):
+			continue
 		var too_close := false
 		for prev in drawn_workers:
-			if Vector2(px, py).distance_to(prev) < 40.0:
+			if Vector2(px, py).distance_to(prev) < spacing:
 				too_close = true
 				break
 		if too_close:
@@ -854,12 +934,13 @@ func _draw_entities() -> void:
 		if not atlas.has(name):
 			name = "myc2_delnik_SE"
 		var wsc: float = 0.32 if not _use_2x else 0.16
-		_draw_soft_shadow(px, py, 2.0, 0.1)
+		if SwarmGfx.soft_shadows():
+			_draw_soft_shadow(px, py, 2.0, 0.1)
 		if atlas.has(name):
 			## Subtle translucent yellow-green spores along strips.
 			_blit(name, px, py, wsc, Color(1.4, 1.7, 0.5, 0.48))
 		else:
-			draw_circle(Iso.world_to_iso(px, py), 1.2, Color(0.85, 1.0, 0.35, 0.45))
+			draw_circle(iso_w, 1.2, Color(0.85, 1.0, 0.35, 0.45))
 		drawn_workers.append(Vector2(px, py))
 
 	if world.stroke_active and world.stroke.size() > 1:
