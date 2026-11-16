@@ -382,22 +382,53 @@ func _tile_sc() -> float:
 	return TILE_SC_2X if _use_2x else TILE_SC_1X
 
 
+func _hash2(ix: int, iy: int) -> float:
+	var n: int = ix * 374761393 + iy * 668265263
+	n = (n ^ (n >> 13)) * 1274126177
+	return float(n & 0xffff) / 65535.0
+
+
+func _draw_tex_cell(tex: Texture2D, center: Vector2, cell: float, rot: float, modulate: Color) -> void:
+	if tex == null or modulate.a <= 0.01:
+		return
+	draw_set_transform(center, rot, Vector2.ONE)
+	var half := cell * 0.5
+	draw_texture_rect(tex, Rect2(-half, -half, cell, cell), true, modulate)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
 func _draw_ground_base() -> void:
-	## Continuous iso underlay beyond camera — no grey void / hard map rectangle.
+	## Continuous iso underlay — never tile zarici full-screen (baked hyphae/spores → hatch carpet).
 	var c := Iso.world_to_iso(float(C.W) * 0.5, float(C.H) * 0.5)
 	var hw: float = float(C.W) * 1.55
 	var hh: float = float(C.H) * 1.05
 	draw_colored_polygon(_diamond_at(c, hw * 1.55, hh * 1.55), Color(0.08, 0.1, 0.055, 1.0))
-	var tex_key := "myc_tex_puda_hola"
-	if _visual_reach() > 220.0:
-		tex_key = "myc_tex_puda_prorostla"
-	if _visual_reach() > 380.0 or world.network_bright > 0.45:
-		tex_key = "myc_tex_puda_zarici"
-	var tex: Texture2D = ProArt.tex(pro, tex_key)
-	if tex != null:
-		## Axis-aligned tiled fill (no diamond UV shear → no stripe bands). Ground stays.
+	var t_hola: Texture2D = ProArt.tex(pro, "myc_tex_puda_hola")
+	var t_pro: Texture2D = ProArt.tex(pro, "myc_tex_puda_prorostla")
+	## Never tile zarici — baked hyphae/spheres read as green hatch patches.
+	if t_hola != null:
+		var reach: float = _visual_reach()
 		var fill := Rect2(c.x - 2200.0, c.y - 1400.0, 4400.0, 2800.0)
-		draw_texture_rect(tex, fill, true)
+		var base: Texture2D = t_hola
+		if reach > 180.0 and t_pro != null:
+			base = t_pro
+		draw_texture_rect(base, fill, true)
+		var cell: float = 480.0
+		var step: float = 240.0
+		var x0: float = c.x - 2200.0
+		var y0: float = c.y - 1400.0
+		var nx: int = int(ceil(4400.0 / step)) + 1
+		var ny: int = int(ceil(2800.0 / step)) + 1
+		for iy in range(ny):
+			for ix in range(nx):
+				var cx: float = x0 + float(ix) * step + cell * 0.5
+				var cy: float = y0 + float(iy) * step + cell * 0.5
+				var h0: float = _hash2(ix, iy)
+				var rot: float = float(int(h0 * 4.0) % 4) * PI * 0.5
+				if t_pro != null and base != t_pro and h0 > 0.35:
+					_draw_tex_cell(t_pro, Vector2(cx, cy), cell, rot, Color(1, 1, 1, 0.22 + 0.1 * h0))
+				if t_hola != null and base != t_hola and _hash2(ix + 3, iy + 5) > 0.55:
+					_draw_tex_cell(t_hola, Vector2(cx, cy), cell * 0.9, rot + PI * 0.5, Color(1, 1, 1, 0.18))
 	else:
 		draw_colored_polygon(_diamond_at(c, hw, hh), Color(0.14, 0.18, 0.1, 1.0))
 	_draw_ground_decals()
@@ -424,28 +455,24 @@ func _draw_soil() -> void:
 	var has_fill: bool = ProArt.has(pro, "myc_tex_puda_hola")
 	for ty in range(rows):
 		for tx in range(cols):
-			## Checker subsample so soil never reads as a solid map rectangle.
-			if has_fill and ((tx + ty * 3) % 3) != 0:
+			## Sparse soil sprites only — skip ziva diamonds that read as hatch patches.
+			if has_fill and ((tx * 5 + ty * 11) % 8) != 0:
 				continue
 			var wx: float = (float(tx) + 0.5) * tile
 			var wy: float = (float(ty) + 0.5) * tile
 			var idx: int = int(world.soil_tiles[ty * cols + tx]) if ty * cols + tx < world.soil_tiles.size() else 0
 			var variant: String = ["a", "b", "c"][clampi(idx, 0, 2)]
 			var stage: String = _terrain_stage(wx, wy)
+			if stage == "ziva":
+				stage = "prorostla"
 			var n := "myc2_puda_%s_%s" % [stage, variant]
 			if atlas.has(n):
-				var a: float = 0.28 if has_fill else 1.0
-				if stage == "ziva":
-					a = 0.42 if has_fill else 1.0
+				var a: float = 0.16 if has_fill else 1.0
 				_blit(n, wx, wy, sc, Color(1, 1, 1, a))
 			elif not has_fill:
 				var iso := Iso.world_to_iso(wx, wy)
 				draw_colored_polygon(_diamond_at(iso, tile * 0.56, tile * 0.28), Color(0.16 + 0.03 * idx, 0.2 + 0.02 * idx, 0.11, 1.0))
-			## Sparse prorust overlays only near live network (avoid neon carpet).
-			if stage == "ziva" and atlas.has("myc2_overlay_prorust") and ((tx + ty) % 5) == 0:
-				var prox: float = 1.0 - clampf(_nest().distance_to(Vector2(wx, wy)) / maxf(_visual_reach(), 1.0), 0.0, 1.0)
-				if prox > 0.55:
-					_blit("myc2_overlay_prorust", wx, wy, sc * 0.85, Color(1, 1, 1, 0.06 + prox * 0.08))
+			## Build 13: no myc2_overlay_prorust — removes green cross-hatch grid patches.
 
 
 func _draw_ground_decals() -> void:
@@ -496,18 +523,21 @@ func _hyfa_dir(dx: float, dy: float) -> String:
 
 
 func _draw_hyphae() -> void:
-	## Organic glowing filaments (fix Build-11 regression): continuous underlay + brighter sprites.
-	var bright: float = 1.0 + world.network_bright * 0.55
+	## Organic filaments: glow at core, thin tips — avoid neon hatch carpet of overlapping tenka.
+	var bright: float = 1.0 + world.network_bright * 0.35
+	var nest := _nest()
 	var drawn := 0
-	var max_draw := 1400
+	var max_draw := 900
 	var i := 0
 	var seg_n: int = world.segs.size()
 	for s in world.segs:
 		i += 1
 		var th: int = int(s.th)
-		## Light subsample only when extremely dense — keep network continuous.
+		## Skip most tenka — dense parallel thin sprites read as green cross-hatch patches.
 		var stride := 1
-		if seg_n > 900 and th <= 0:
+		if th <= 0:
+			stride = 4
+		elif th == 1:
 			stride = 2
 		if (i % stride) != 0:
 			continue
@@ -516,24 +546,48 @@ func _draw_hyphae() -> void:
 		var dx: float = s.x2 - s.x1
 		var dy: float = s.y2 - s.y1
 		var dir := _hyfa_dir(dx, dy)
-		var thn := _th_name(th)
-		var name := "myc2_hyfa_%s_%s" % [thn, dir]
 		var mx: float = (s.x1 + s.x2) * 0.5
 		var my: float = (s.y1 + s.y2) * 0.5
+		var dist_n: float = nest.distance_to(Vector2(mx, my))
+		var near_core: bool = dist_n < 180.0
+		## Prefer soft glowing trunks; periphery almost exclusively tip-thin.
+		var draw_th: int = th
+		if dist_n > 220.0:
+			draw_th = 0
+		elif near_core:
+			draw_th = maxi(th, 2 if th >= 1 else 1)
+		var thn := _th_name(draw_th)
+		## Prefer silna/stredni near core so the network reads as glowing cords, not hatch mesh.
+		if near_core and draw_th >= 1:
+			thn = "silna" if draw_th >= 2 else "stredni"
+		var name := "myc2_hyfa_%s_%s" % [thn, dir]
 		var a_iso := Iso.world_to_iso(s.x1, s.y1)
 		var b_iso := Iso.world_to_iso(s.x2, s.y2)
-		## Sprite-first hyphae — thin underlay only when atlas miss / very thin segs.
-		var alpha: float = (0.65 + 0.1 * float(mini(3, th))) * minf(1.15, bright)
-		var col := Color(1.05, 1.25, 1.0, alpha)
+		var fuse: float = 0.0
+		if s is Dictionary and s.has("fuseGlow"):
+			fuse = float(s.fuseGlow)
+		var alpha: float = (0.38 + 0.18 * float(mini(3, draw_th))) * minf(1.05, bright)
+		if near_core:
+			alpha = minf(0.92, alpha + 0.2 + fuse * 0.12)
+		var col := Color(1.1 + (0.25 if near_core else 0.0), 1.2 + (0.3 if near_core else 0.05), 0.85, alpha)
 		if atlas.has(name):
-			var sc := 0.4 + 0.06 * float(mini(3, th))
+			var sc := 0.28 + 0.14 * float(mini(3, maxi(draw_th, 1 if near_core else 0)))
+			if near_core:
+				sc += 0.1
 			if _use_2x:
 				sc *= 0.5
+			## Sprite-only — core glow via brighter silna modulate (no SE/SW line underlay hatch).
+			if near_core and draw_th >= 2:
+				col = Color(1.55, 1.85, 0.7, minf(0.98, alpha + 0.1 + fuse * 0.12))
+				sc *= 1.18
+			elif near_core:
+				col = Color(1.3, 1.5, 0.7, minf(0.9, alpha + 0.05))
 			_blit(name, mx, my, sc, col)
 			drawn += 1
 		else:
-			var w: float = 1.1 + float(mini(3, th)) * 0.55
-			draw_line(a_iso, b_iso, Color(0.45, 0.9, 0.6, 0.35 * bright), w, true)
+			## Fallback only on atlas miss — keep hairline, never a neon carpet.
+			var w: float = 0.55 + float(mini(3, draw_th)) * 0.25
+			draw_line(a_iso, b_iso, Color(0.55, 0.8, 0.5, 0.2 * bright), w, true)
 			drawn += 1
 	## Sparse branch / node accents.
 	if atlas.has("myc2_hyfa_uzel_stredni"):
@@ -546,28 +600,24 @@ func _draw_hyphae() -> void:
 			var thn2 := _th_name(int(s2.th))
 			var uname := "myc2_hyfa_uzel_%s" % thn2
 			if atlas.has(uname):
-				_blit(uname, s2.x1, s2.y1, 0.28 if not _use_2x else 0.14, Color(1.45, 1.7, 1.25, 0.65 + world.network_bright * 0.25))
+				_blit(uname, s2.x1, s2.y1, 0.28 if not _use_2x else 0.14, Color(1.35, 1.55, 1.15, 0.55 + world.network_bright * 0.2))
 				shown += 1
-				if shown > 40:
+				if shown > 28:
 					break
 			if atlas.has("myc2_hyfa_vetveni_%s" % thn2) and shown % 3 == 0:
-				_blit("myc2_hyfa_vetveni_%s" % thn2, s2.x2, s2.y2, 0.24 if not _use_2x else 0.12, Color(1.35, 1.6, 1.15, 0.55))
-			if ProArt.has(pro, "myc_decal_hyfa_chomac") and shown % 5 == 0:
-				ProArt.blit(self, pro, "myc_decal_hyfa_chomac", Iso.world_to_iso(s2.x1, s2.y1), 0.28 if not _use_2x else 0.14, Color(1.2, 1.4, 1.1, 0.4))
+				_blit("myc2_hyfa_vetveni_%s" % thn2, s2.x2, s2.y2, 0.22 if not _use_2x else 0.11, Color(1.25, 1.45, 1.1, 0.45))
+			if ProArt.has(pro, "myc_decal_hyfa_chomac") and shown % 4 == 0:
+				ProArt.blit(self, pro, "myc_decal_hyfa_chomac", Iso.world_to_iso(s2.x1, s2.y1), 0.3 if not _use_2x else 0.15, Color(1.15, 1.3, 1.05, 0.45))
 	for t in world.tips:
 		var dir2 := _hyfa_dir(cos(t.a), sin(t.a))
-		var tip_th := "tenka"
-		if world.network_bright > 0.4:
-			tip_th = "stredni"
-		if world.network_bright > 0.75 or world.big_anchored:
-			tip_th = "silna"
-		var tip_name := "myc2_hyfa_tip_%s_%s" % [tip_th, dir2]
+		## Tips always thin — never escalate with network_bright.
+		var tip_name := "myc2_hyfa_tip_tenka_%s" % dir2
 		if not atlas.has(tip_name):
 			tip_name = "myc2_hyfa_tip"
 		if atlas.has(tip_name):
-			_blit(tip_name, t.x, t.y, 0.4 if not _use_2x else 0.2, Color(1.55, 1.8, 1.3, 0.85 * bright))
+			_blit(tip_name, t.x, t.y, 0.22 if not _use_2x else 0.11, Color(1.15, 1.3, 1.0, 0.42 * bright))
 		else:
-			draw_circle(Iso.world_to_iso(t.x, t.y), 2.6, Color(0.55, 1.0, 0.7, 0.85))
+			draw_circle(Iso.world_to_iso(t.x, t.y), 1.2, Color(0.55, 0.9, 0.65, 0.4))
 
 
 func _kotva_stage(p: Dictionary) -> String:
@@ -593,9 +643,9 @@ func _draw_entities() -> void:
 		_draw_soft_shadow(p.x, p.y, 14.0 if p.get("big", false) else 9.0, 0.22 + p.lit * 0.12)
 		if atlas.has(name):
 			_blit(name, p.x, p.y, sc, Color(1, 1, 1, 0.55 + p.lit * 0.4))
-			## Soft zariva bloom — keep subtle so it never reads as a neon slash overlay.
-			if stage == "zariva" and atlas.has("myc2_overlay_zare") and p.lit > 0.55:
-				_blit("myc2_overlay_zare", p.x, p.y, sc * 0.95, Color(1, 1, 1, 0.12 + p.lit * 0.12))
+			## Soft zariva bloom only — never prorust hatch overlays.
+			if stage == "zariva" and atlas.has("myc2_overlay_zare") and p.lit > 0.7:
+				_blit("myc2_overlay_zare", p.x, p.y, sc * 0.7, Color(1.1, 1.25, 1.05, 0.08 + p.lit * 0.06))
 		else:
 			_draw_box_fallback(p.x, p.y, p.r * 0.7, Color(0.35, 0.7, 0.45, 0.85))
 
@@ -648,8 +698,19 @@ func _draw_entities() -> void:
 		else:
 			draw_circle(Iso.world_to_iso(world.seed.x, world.seed.y), 6.0, Color(0.5, 0.9, 0.6))
 
+	## Translucent yellow-green spores/workers — ~50% smaller, spaced (~1 / 40px hypha).
+	var drawn_workers: Array = []
 	for w in world.workers:
 		var pos = world.worker_pos(w)
+		var px: float = float(pos.x)
+		var py: float = float(pos.y)
+		var too_close := false
+		for prev in drawn_workers:
+			if Vector2(px, py).distance_to(prev) < 40.0:
+				too_close = true
+				break
+		if too_close:
+			continue
 		## Face along current segment tangent (all 4 dirs).
 		var dir := "SE"
 		var n: int = w.route.size() if w.has("route") else 0
@@ -667,12 +728,14 @@ func _draw_entities() -> void:
 		var name := ("myc2_delnik_neseni_%s" if carrying else "myc2_delnik_%s") % dir
 		if not atlas.has(name):
 			name = "myc2_delnik_SE"
-		var wsc: float = 0.78 if not _use_2x else 0.4
-		_draw_soft_shadow(pos.x, pos.y, 5.0, 0.25)
+		var wsc: float = 0.36 if not _use_2x else 0.18
+		_draw_soft_shadow(px, py, 2.5, 0.14)
 		if atlas.has(name):
-			_blit(name, pos.x, pos.y, wsc, Color(1.15, 1.2, 1.05, 1.0))
+			## Translucent yellow-green spore look (modulate overcomes dark delnik base).
+			_blit(name, px, py, wsc, Color(1.55, 1.85, 0.55, 0.62))
 		else:
-			draw_circle(Iso.world_to_iso(pos.x, pos.y), 2.8, Color(0.55, 0.9, 0.6))
+			draw_circle(Iso.world_to_iso(px, py), 1.4, Color(0.85, 1.0, 0.35, 0.55))
+		drawn_workers.append(Vector2(px, py))
 
 	if world.stroke_active and world.stroke.size() > 1:
 		for i in range(1, world.stroke.size()):
@@ -681,9 +744,7 @@ func _draw_entities() -> void:
 			## Soft guidance stroke — never a neon slash.
 			draw_line(a, b, Color(0.55, 0.85, 0.65, 0.28), 1.6, true)
 
-	for m in world.matters:
-		if m.encircled and m.kind != "fruit" and atlas.has("myc2_overlay_prorust"):
-			_blit("myc2_overlay_prorust", m.x, m.y, 0.32 if not _use_2x else 0.16, Color(1, 1, 1, 0.18 * m.decay))
+	## Build 13: no matter-site prorust hatch overlays.
 
 	## Age 3 — pro_v3 sprites (no procedural boxes when pack present).
 	if world.infected != null:

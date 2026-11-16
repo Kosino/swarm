@@ -184,6 +184,54 @@ func _path_len(pts: Array) -> float:
 	return G.path_length(pts)
 
 
+func _sample_polyline(pts: Array, t: float, lane: float = 0.0) -> Vector2:
+	## Sample 0..1 along polyline with lateral lane offset (bee streams).
+	if pts.is_empty():
+		return Vector2(cx, cy)
+	if pts.size() == 1:
+		return Vector2(float(pts[0].x), float(pts[0].y))
+	var u: float = clampf(t, 0.0, 1.0)
+	var total: float = maxf(1.0, _path_len(pts))
+	var target: float = u * total
+	var acc: float = 0.0
+	for i in range(1, pts.size()):
+		var a := Vector2(float(pts[i - 1].x), float(pts[i - 1].y))
+		var b := Vector2(float(pts[i].x), float(pts[i].y))
+		var seg: float = a.distance_to(b)
+		if acc + seg >= target or i == pts.size() - 1:
+			var local: float = 0.0 if seg <= 0.001 else clampf((target - acc) / seg, 0.0, 1.0)
+			var p: Vector2 = a.lerp(b, local)
+			var tang: Vector2 = (b - a).normalized() if seg > 0.001 else Vector2.RIGHT
+			var nrm := Vector2(-tang.y, tang.x)
+			return p + nrm * lane
+		acc += seg
+	return Vector2(float(pts[pts.size() - 1].x), float(pts[pts.size() - 1].y))
+
+
+func _stream_path_for_flower(hc: Vector2, f: Dictionary, salt: int) -> Array:
+	## Prefer an existing trail that ends near the flower; else curved hive→flower ribbon.
+	var best: Array = []
+	var best_d := INF
+	for tr in trails:
+		if tr.pts.size() < 2:
+			continue
+		var last = tr.pts[tr.pts.size() - 1]
+		var d: float = G.hypot(float(last.x) - float(f.x), float(last.y) - float(f.y))
+		if d < best_d and d < 90.0:
+			best_d = d
+			best = tr.pts
+	if best.size() >= 2:
+		return best
+	var bend := Vector2(-16.0 + float(salt % 5) * 4.0, 10.0 - float(salt % 3) * 3.0)
+	var pts: Array = []
+	var steps := 8
+	for s in range(steps + 1):
+		var u: float = float(s) / float(steps)
+		var p: Vector2 = hc.lerp(Vector2(float(f.x), float(f.y)), u) + bend * sin(u * PI)
+		pts.append({"x": p.x, "y": p.y})
+	return pts
+
+
 func _init_flowers() -> void:
 	flowers.clear()
 	var n_flowers: int = C.FLOWER_MIN + int(floor(_rnd() * float(C.FLOWER_MAX - C.FLOWER_MIN + 1)))
@@ -1016,6 +1064,10 @@ func update(dt: float) -> void:
 		var dist2: float = G.hypot(f.x - hc.x, f.y - hc.y)
 		var travel: float = maxf(40.0, dist2)
 		w.t += (spd * dt) / travel
+		## Stream bees along pheromone polylines (timing still uses straight-line travel).
+		var salt: int = int(floor(float(w.phase) * 17.0))
+		var path_pts: Array = _stream_path_for_flower(hc, f, salt)
+		var lane: float = (fmod(float(w.phase) * 0.618, 1.0) - 0.5) * 14.0
 		if w.outbound:
 			if w.t >= 1.0:
 				w.t = 1.0
@@ -1025,8 +1077,9 @@ func update(dt: float) -> void:
 				f.bloom = minf(1.0, f.bloom + 0.12)
 				w.t = 0.0
 			var u2: float = w.t
-			w.x = hc.x + (f.x - hc.x) * u2
-			w.y = hc.y + (f.y - hc.y) * u2
+			var pos2: Vector2 = _sample_polyline(path_pts, u2, lane)
+			w.x = pos2.x
+			w.y = pos2.y
 		else:
 			if w.t >= 1.0:
 				w.t = 0.0
@@ -1062,8 +1115,9 @@ func update(dt: float) -> void:
 							nearest.amber = minf(1.0, nearest.amber + 0.18)
 							nearest.pulse = 0.7
 			var u3: float = w.t
-			w.x = f.x + (hc.x - f.x) * u3
-			w.y = f.y + (hc.y - f.y) * u3
+			var pos3: Vector2 = _sample_polyline(path_pts, 1.0 - u3, -lane)
+			w.x = pos3.x
+			w.y = pos3.y
 
 	for f4 in flowers:
 		if f4.hint > 0.0:
