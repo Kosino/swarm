@@ -1,4 +1,4 @@
-## Isometric Mycelium — atlas art v1 (grey fallback if atlas missing).
+## Isometric Mycelium — atlas art v2 (terrain / hypha / building stages + FX).
 extends Node2D
 
 const C = preload("res://mycelium/config.gd")
@@ -26,12 +26,16 @@ var panning: bool = false
 var pan_last: Vector2 = Vector2.ZERO
 var zoom_target: float = 1.0
 var atlas: Dictionary = {}
+var sequences: Dictionary = {}
 var _drag: bool = false
 var _use_2x: bool = false
 var _orbit_done: bool = false
 var _other_planet_a: float = 0.0
 var _autosave_cd: float = 60.0
 var _run_seed: int = 42
+var _fx: Array = [] ## {seq, x, y, t, life}
+var _prev_pulse: float = 0.0
+var _prev_bright: float = 0.0
 
 
 func _resolve_rod() -> String:
@@ -73,6 +77,7 @@ func _ready() -> void:
 
 	_use_2x = DisplayServer.screen_get_scale() >= 1.5
 	atlas = Atlas.load_all(_use_2x)
+	sequences = Atlas.load_sequences(_use_2x)
 	_run_seed = 42
 	var opts := {"silent": false, "seed": _run_seed}
 	var resume_t: float = -1.0
@@ -142,6 +147,7 @@ func _process(dt: float) -> void:
 	if _autosave_cd <= 0.0:
 		_autosave_cd = 60.0
 		_autosave()
+	_tick_fx(dt)
 
 	if world.mvp_end_time != null:
 		_other_planet_a = minf(1.0, _other_planet_a + dt * 0.35)
@@ -253,12 +259,74 @@ func _screen_to_world(screen: Vector2) -> Vector2:
 	return Iso.iso_to_world(canvas.x, canvas.y)
 
 
+func _nest() -> Vector2:
+	if world.seed != null:
+		return Vector2(world.seed.x, world.seed.y)
+	return Vector2(float(C.W) * 0.5, float(C.H) * 0.5)
+
+
+func _visual_reach() -> float:
+	var base: float = 90.0 + float(world.segs.size()) * 0.11 + world.time * 0.22
+	if world.big_anchored:
+		base += 80.0
+	if world.join_time != null:
+		base += 60.0
+	return clampf(base, 90.0, 520.0)
+
+
+func _terrain_stage(wx: float, wy: float) -> String:
+	var nest := _nest()
+	var d: float = nest.distance_to(Vector2(wx, wy))
+	var reach: float = _visual_reach()
+	if d > reach * 1.05:
+		return "pusta"
+	if d > reach * 0.52:
+		return "prorostla"
+	return "ziva"
+
+
+func _th_name(th: int) -> String:
+	if th <= 0:
+		return "tenka"
+	if th == 1:
+		return "stredni"
+	return "silna"
+
+
+func _spawn_fx(seq: String, x: float, y: float, life: float = 1.0) -> void:
+	if not sequences.has(seq):
+		return
+	_fx.append({"seq": seq, "x": x, "y": y, "t": 0.0, "life": life})
+
+
+func _tick_fx(dt: float) -> void:
+	## Rising pulse / wow → kapka + spóra bursts.
+	if world.network_pulse > _prev_pulse + 0.35:
+		var nest := _nest()
+		_spawn_fx("myc2_fx_kapka", nest.x, nest.y, 1.0)
+		_spawn_fx("myc2_fx_spora", nest.x + 12.0, nest.y - 8.0, 1.15)
+	if world.network_bright > _prev_bright + 0.45:
+		for p in world.patches:
+			if p.on and (p.lit > 0.55 or p.get("big", false)):
+				_spawn_fx("myc2_fx_spora", p.x, p.y, 1.2)
+				break
+	_prev_pulse = world.network_pulse
+	_prev_bright = world.network_bright
+	var i := _fx.size() - 1
+	while i >= 0:
+		_fx[i].t += dt
+		if _fx[i].t >= _fx[i].life:
+			_fx.remove_at(i)
+		i -= 1
+
+
 func _draw() -> void:
 	if world == null:
 		return
 	_draw_soil()
 	_draw_hyphae()
 	_draw_entities()
+	_draw_fx()
 	_draw_guidance()
 
 
@@ -278,19 +346,25 @@ func _draw_soil() -> void:
 	var cols: int = world.soil_cols
 	var rows: int = world.soil_rows
 	var tile: float = float(C.SOIL_TILE)
-	var names := ["myc_iso_puda_a", "myc_iso_puda_b", "myc_iso_puda_c"]
+	var sc: float = 0.5 if not _use_2x else 0.25
 	for ty in range(rows):
 		for tx in range(cols):
 			var wx: float = (float(tx) + 0.5) * tile
 			var wy: float = (float(ty) + 0.5) * tile
 			var idx: int = int(world.soil_tiles[ty * cols + tx]) if ty * cols + tx < world.soil_tiles.size() else 0
-			var n: String = names[clampi(idx, 0, 2)]
+			var variant: String = ["a", "b", "c"][clampi(idx, 0, 2)]
+			var stage: String = _terrain_stage(wx, wy)
+			var n := "myc2_puda_%s_%s" % [stage, variant]
 			if atlas.has(n):
-				_blit(n, wx, wy, 0.5 if not _use_2x else 0.25)
+				_blit(n, wx, wy, sc)
 			else:
 				var iso := Iso.world_to_iso(wx, wy)
 				var shade := 0.18 + 0.04 * float(idx)
 				draw_colored_polygon(_diamond_at(iso, tile * 0.5, tile * 0.25), Color(shade, shade, shade * 0.95))
+			if stage != "pusta" and atlas.has("myc2_overlay_prorust"):
+				var prox: float = 1.0 - clampf(_nest().distance_to(Vector2(wx, wy)) / maxf(_visual_reach(), 1.0), 0.0, 1.0)
+				if prox > 0.35:
+					_blit("myc2_overlay_prorust", wx, wy, sc * 0.95, Color(1, 1, 1, 0.18 + prox * 0.28))
 
 
 func _diamond_at(center: Vector2, half_w: float, half_h: float) -> PackedVector2Array:
@@ -303,9 +377,7 @@ func _diamond_at(center: Vector2, half_w: float, half_h: float) -> PackedVector2
 
 
 func _hyfa_dir(dx: float, dy: float) -> String:
-	## Map world delta to NE/SE/NW/SW iso directions.
 	var a := atan2(dy, dx)
-	# iso axes: NE ≈ -π/4, SE ≈ π/4, SW ≈ 3π/4, NW ≈ -3π/4 in world
 	if a >= -PI * 0.25 and a < PI * 0.25:
 		return "SE"
 	if a >= PI * 0.25 and a < PI * 0.75:
@@ -322,27 +394,54 @@ func _draw_hyphae() -> void:
 		var dx: float = s.x2 - s.x1
 		var dy: float = s.y2 - s.y1
 		var dir := _hyfa_dir(dx, dy)
-		var name := "myc_iso_hyfa_%s" % dir
+		var thn := _th_name(int(s.th))
+		var name := "myc2_hyfa_%s_%s" % [thn, dir]
 		var mx: float = (s.x1 + s.x2) * 0.5
 		var my: float = (s.y1 + s.y2) * 0.5
 		if atlas.has(name):
-			var sc := 0.22 + 0.04 * float(mini(3, int(s.th)))
+			var sc := 0.22 + 0.03 * float(mini(3, int(s.th)))
 			if _use_2x:
 				sc *= 0.5
 			_blit(name, mx, my, sc, col)
 		else:
 			var a := Iso.world_to_iso(s.x1, s.y1)
 			var b := Iso.world_to_iso(s.x2, s.y2)
-			draw_line(a, b, Color(0.8, 0.8, 0.8, 0.78 * bright), 1.0 + float(mini(3, int(s.th))) * 0.7, true)
+			draw_line(a, b, Color(0.45, 0.85, 0.55, 0.78 * bright), 1.0 + float(mini(3, int(s.th))) * 0.7, true)
+	## Branch / node accents on thicker segments.
+	if atlas.has("myc2_hyfa_uzel_stredni"):
+		var shown := 0
+		for s2 in world.segs:
+			if int(s2.th) < 2:
+				continue
+			var thn2 := _th_name(int(s2.th))
+			var uname := "myc2_hyfa_uzel_%s" % thn2
+			if atlas.has(uname):
+				_blit(uname, s2.x1, s2.y1, 0.2 if not _use_2x else 0.1, Color(1, 1, 1, 0.55 + world.network_bright * 0.3))
+				shown += 1
+				if shown > 40:
+					break
 	for t in world.tips:
 		var dir2 := _hyfa_dir(cos(t.a), sin(t.a))
-		var tip_name := "myc_iso_hyfa_tip_%s" % dir2
+		var tip_th := "tenka"
+		if world.network_bright > 0.4:
+			tip_th = "stredni"
+		if world.network_bright > 0.75 or world.big_anchored:
+			tip_th = "silna"
+		var tip_name := "myc2_hyfa_tip_%s_%s" % [tip_th, dir2]
 		if not atlas.has(tip_name):
-			tip_name = "myc_iso_hyfa_tip"
+			tip_name = "myc2_hyfa_tip"
 		if atlas.has(tip_name):
 			_blit(tip_name, t.x, t.y, 0.35 if not _use_2x else 0.18, col)
 		else:
-			draw_circle(Iso.world_to_iso(t.x, t.y), 2.0, Color(0.92, 0.92, 0.92, 0.9))
+			draw_circle(Iso.world_to_iso(t.x, t.y), 2.0, Color(0.55, 0.95, 0.65, 0.9))
+
+
+func _kotva_stage(p: Dictionary) -> String:
+	if p.get("big", false) or p.lit > 0.75 or world.network_bright > 0.55:
+		return "zariva"
+	if p.on and p.lit > 0.25:
+		return "dorostla"
+	return "rozestavena"
 
 
 func _draw_entities() -> void:
@@ -350,24 +449,36 @@ func _draw_entities() -> void:
 	if world.dim_all > 0.0:
 		dim = maxf(0.15, 1.0 - world.dim_all * 0.85)
 	for p in world.patches:
-		var name := "myc_iso_kotva" if p.on else "myc_iso_skvrna"
+		if not p.on and p.lit < 0.05 and not p.get("big", false):
+			continue
+		var stage := _kotva_stage(p)
+		var name := "myc2_kotva_%s" % stage
 		var sc := 0.55 if p.get("big", false) else 0.4
 		if _use_2x:
 			sc *= 0.5
 		if atlas.has(name):
 			_blit(name, p.x, p.y, sc, Color(1, 1, 1, 0.55 + p.lit * 0.4))
+			if stage == "zariva" and atlas.has("myc2_overlay_zare"):
+				_blit("myc2_overlay_zare", p.x, p.y, sc * 1.05, Color(1, 1, 1, 0.35 + world.network_bright * 0.4))
 		else:
-			_draw_box_fallback(p.x, p.y, p.r * 0.7, Color(0.5, 0.5, 0.48, 0.85))
+			_draw_box_fallback(p.x, p.y, p.r * 0.7, Color(0.35, 0.7, 0.45, 0.85))
 
 	for m in world.matters:
 		var name := ""
 		match String(m.kind):
-			"machine":
-				name = "myc_iso_stroj_obrostly" if m.encircled else "myc_iso_stroj_cely"
-			"beetle":
-				name = "myc_iso_brouk_obrostly" if m.encircled else "myc_iso_brouk_cely"
+			"machine", "beetle":
+				## No dedicated v2 husks — reuse plodnice stages as organic overgrowth markers.
+				if m.encircled:
+					name = "myc2_plodnice_dorostla" if m.decay < 0.55 else "myc2_plodnice_zariva"
+				else:
+					name = "myc2_plodnice_rozestavena"
 			"fruit":
-				name = "myc_iso_plodnice"
+				if world.network_bright > 0.5 or world.spore_time != null:
+					name = "myc2_plodnice_zariva"
+				elif m.encircled or world.fruit_time != null:
+					name = "myc2_plodnice_dorostla"
+				else:
+					name = "myc2_plodnice_rozestavena"
 		var sc := 0.45
 		if _use_2x:
 			sc *= 0.5
@@ -375,44 +486,56 @@ func _draw_entities() -> void:
 		if name != "" and atlas.has(name):
 			_blit(name, m.x, m.y, sc, Color(1, 1, 1, alpha))
 		else:
-			_draw_box_fallback(m.x, m.y, m.r * 0.55, Color(0.48, 0.48, 0.46, 0.7 * alpha))
+			_draw_box_fallback(m.x, m.y, m.r * 0.55, Color(0.4, 0.65, 0.45, 0.7 * alpha))
 
 	for g in world.germs:
-		# distant seeds reuse zarodek scaled down
-		if atlas.has("myc_iso_zarodek"):
-			_blit("myc_iso_zarodek", g.x, g.y, 0.22 if not _use_2x else 0.11, Color(0.85, 0.9, 0.8, 0.7 + g.lit * 0.3))
+		var gstage := "rozestavena"
+		if g.linked or g.lit > 0.4:
+			gstage = "dorostla"
+		if g.lit > 0.75 or world.network_bright > 0.6:
+			gstage = "zariva"
+		var gname := "myc2_zarodek_%s" % gstage
+		if atlas.has(gname):
+			_blit(gname, g.x, g.y, 0.22 if not _use_2x else 0.11, Color(0.85, 0.95, 0.8, 0.7 + g.lit * 0.3))
 		else:
-			draw_circle(Iso.world_to_iso(g.x, g.y), 4.0, Color(0.7, 0.75, 0.65, 0.8))
+			draw_circle(Iso.world_to_iso(g.x, g.y), 4.0, Color(0.45, 0.85, 0.55, 0.8))
 
 	if world.seed != null:
-		if atlas.has("myc_iso_zarodek"):
-			_blit("myc_iso_zarodek", world.seed.x, world.seed.y, 0.5 if not _use_2x else 0.25)
+		var sstage := "dorostla"
+		if world.network_bright > 0.45 or world.big_anchored:
+			sstage = "zariva"
+		elif world.segs.size() < 40:
+			sstage = "rozestavena"
+		var sname := "myc2_zarodek_%s" % sstage
+		if atlas.has(sname):
+			_blit(sname, world.seed.x, world.seed.y, 0.5 if not _use_2x else 0.25)
 		else:
-			draw_circle(Iso.world_to_iso(world.seed.x, world.seed.y), 6.0, Color(0.85, 0.85, 0.82))
+			draw_circle(Iso.world_to_iso(world.seed.x, world.seed.y), 6.0, Color(0.5, 0.9, 0.6))
 
 	for w in world.workers:
 		var pos = world.worker_pos(w)
 		var dir := "SE"
 		if w.dir < 0:
 			dir = "NW"
-		var name := "myc_iso_delnik_%s" % dir
+		## Returning workers carry matter back to the nest.
+		var carrying: bool = int(w.dir) < 0
+		var name := ("myc2_delnik_neseni_%s" if carrying else "myc2_delnik_%s") % dir
 		if not atlas.has(name):
-			name = "myc_iso_delnik_SE"
+			name = "myc2_delnik_SE"
 		if atlas.has(name):
 			_blit(name, pos.x, pos.y, 0.55 if not _use_2x else 0.28)
 		else:
-			draw_circle(Iso.world_to_iso(pos.x, pos.y), 2.0, Color(0.9, 0.9, 0.9))
+			draw_circle(Iso.world_to_iso(pos.x, pos.y), 2.0, Color(0.55, 0.9, 0.6))
 
 	if world.stroke_active and world.stroke.size() > 1:
 		for i in range(1, world.stroke.size()):
 			var a := Iso.world_to_iso(world.stroke[i - 1].x, world.stroke[i - 1].y)
 			var b := Iso.world_to_iso(world.stroke[i].x, world.stroke[i].y)
-			draw_line(a, b, Color(0.78, 0.82, 0.74, 0.45), 2.0, true)
+			draw_line(a, b, Color(0.55, 0.9, 0.65, 0.45), 2.0, true)
 
-	# moist soil under decayed matter
 	for m in world.matters:
-		if m.encircled and m.kind != "fruit" and atlas.has("myc_iso_puda_vlhka"):
-			_blit("myc_iso_puda_vlhka", m.x, m.y, 0.4 if not _use_2x else 0.2, Color(1, 1, 1, 0.35 * m.decay))
+		if m.encircled and m.kind != "fruit" and atlas.has("myc2_overlay_prorust"):
+			_blit("myc2_overlay_prorust", m.x, m.y, 0.4 if not _use_2x else 0.2, Color(1, 1, 1, 0.35 * m.decay))
 
 	## Age 3 overlays
 	if world.infected != null:
@@ -426,19 +549,42 @@ func _draw_entities() -> void:
 	if world.giant_fruit != null:
 		var gf = world.giant_fruit
 		var gr: float = gf.r * (0.35 + gf.grow * 0.65)
-		_draw_box_fallback(gf.x, gf.y, gr * 0.55, Color(0.7, 0.72, 0.62, 0.85 * dim))
+		var gfn := "myc2_plodnice_zariva" if gf.grow > 0.7 else ("myc2_plodnice_dorostla" if gf.grow > 0.3 else "myc2_plodnice_rozestavena")
+		if atlas.has(gfn):
+			_blit(gfn, gf.x, gf.y, 0.55 + gf.grow * 0.25 if not _use_2x else 0.28 + gf.grow * 0.12, Color(1, 1, 1, 0.85 * dim))
+		else:
+			_draw_box_fallback(gf.x, gf.y, gr * 0.55, Color(0.5, 0.85, 0.55, 0.85 * dim))
 	if world.seed_capsule != null:
 		var sc = world.seed_capsule
 		var glow: float = 0.6 + 0.4 * abs(sin(world.time * 3.2))
-		draw_circle(Iso.world_to_iso(sc.x, sc.y), 7.0 + sc.pulse * 4.0, Color(0.95, 0.98, 0.7, glow))
+		if atlas.has("myc2_zarodek_zariva"):
+			_blit("myc2_zarodek_zariva", sc.x, sc.y, 0.4 if not _use_2x else 0.2, Color(1, 1, 1, glow))
+		else:
+			draw_circle(Iso.world_to_iso(sc.x, sc.y), 7.0 + sc.pulse * 4.0, Color(0.95, 0.98, 0.7, glow))
 	if world.mvp_end_time != null:
-		## Distant warm Apis planet glitter (no interaction).
 		var vp := get_viewport_rect().size
 		var p := Vector2(vp.x * 0.78, vp.y * 0.22)
 		var tw: float = 0.4 + 0.6 * abs(sin(world.time * 2.5))
 		draw_circle(p, 5.0, Color(0.95, 0.75, 0.3, _other_planet_a * tw))
 		draw_arc(p, 10.0, 0, TAU, 20, Color(0.95, 0.7, 0.25, _other_planet_a * 0.45), 1.2)
 		draw_string(ThemeDB.fallback_font, Vector2(vp.x * 0.5 - 40, vp.y * 0.12), "SWARM", HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.9, 0.92, 0.88, minf(1.0, world.orbit_t * 0.25)))
+
+
+func _draw_fx() -> void:
+	var sc: float = 0.55 if not _use_2x else 0.28
+	for fx in _fx:
+		var seq_name: String = fx.seq
+		if not sequences.has(seq_name):
+			continue
+		var seq: Dictionary = sequences[seq_name]
+		var frames: Array = seq.get("frames", [])
+		if frames.is_empty():
+			continue
+		var fps: float = float(seq.get("fps", 8))
+		var idx: int = int(floor(fx.t * fps)) % frames.size()
+		var frame: String = str(frames[idx])
+		var alpha: float = 0.85 * (1.0 - fx.t / maxf(fx.life, 0.01))
+		_blit(frame, fx.x, fx.y, sc, Color(1.4, 1.4, 1.4, alpha))
 
 
 func _draw_box_fallback(wx: float, wy: float, half: float, col: Color) -> void:

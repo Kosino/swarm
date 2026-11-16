@@ -896,6 +896,20 @@ func update(dt: float) -> void:
 	if core_pulse > 0.0:
 		core_pulse = maxf(0.0, core_pulse - dt * 0.7)
 	pulse_hex_glow = 0.55 + 0.45 * sin(time * 2.4)
+	## Gentle zoom-out with hive growth so minute 15 shows the whole work.
+	if mvp_end_time == null:
+		var growth: float = clampf(
+			float(chambers.size()) / 40.0 * 0.4
+			+ float(trails.size()) / 6.0 * 0.2
+			+ float(workers.size()) / 80.0 * 0.15
+			+ time / 900.0 * 0.35,
+			0.0, 1.0
+		)
+		var z_goal: float = lerpf(1.0, C.CAM_ZOOM_OUT, growth)
+		if time > 600.0:
+			z_goal = lerpf(z_goal, C.CAM_ZOOM_OUT * 0.82, clampf((time - 600.0) / 280.0, 0.0, 1.0))
+		if z_goal < cam_zoom_target:
+			cam_zoom_target = z_goal
 	cam_zoom += (cam_zoom_target - cam_zoom) * minf(1.0, dt / (C.CAM_ZOOM_DUR * 0.35))
 	if big_flight:
 		big_flight_t += dt

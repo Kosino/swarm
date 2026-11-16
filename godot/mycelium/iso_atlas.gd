@@ -1,11 +1,9 @@
 extends RefCounted
 class_name MyceliumIsoAtlas
-## Builds AtlasTexture resources (and pivot/offset) from godot_atlas.json.
-## Usage:
-##   var data := MyceliumIsoAtlas.load_all()
-##   MyceliumIsoAtlas.apply_to_sprite($Sprite2D, data["myc_iso_puda_a"])
+## Builds AtlasTexture resources (and pivot/offset) from godot_atlas.json (iso v2).
+## FX sequences: MyceliumIsoAtlas.load_sequences() → name, frames, fps, blend.
 
-const ROOT := "res://art/mycelium_iso_v1/"
+const ROOT := "res://art/mycelium_iso_v2/"
 const JSON_PATH := ROOT + "godot_atlas.json"
 
 
@@ -48,7 +46,20 @@ static func load_all(use_2x: bool = false) -> Dictionary:
 	return out
 
 
-## Assigns the atlas region and places the sprite so its pivot sits at Node2D.position.
+static func load_sequences(use_2x: bool = false) -> Dictionary:
+	var file := FileAccess.open(JSON_PATH, FileAccess.READ)
+	if file == null:
+		return {}
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	file.close()
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return {}
+	var key := "sequences_2x" if use_2x else "sequences"
+	if not parsed.has(key):
+		return {}
+	return parsed[key]
+
+
 static func apply_to_sprite(sprite: Sprite2D, entry: Dictionary) -> void:
 	sprite.texture = entry["texture"]
 	sprite.centered = false

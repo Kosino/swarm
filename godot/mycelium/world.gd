@@ -1314,6 +1314,23 @@ func update(dt: float) -> void:
 		_spawn_big_patch()
 	if big_anchored:
 		_spawn_matters()
+	## Gentle zoom-out with colony growth so minute 15 shows the whole work.
+	if mvp_end_time == null:
+		var anchors_on := 0
+		for p in patches:
+			if p.on:
+				anchors_on += 1
+		var growth: float = clampf(
+			float(segs.size()) / 2200.0 * 0.45
+			+ float(anchors_on) / 8.0 * 0.25
+			+ time / 900.0 * 0.35,
+			0.0, 1.0
+		)
+		var z_goal: float = lerpf(1.0, C.CAM_ZOOM_OUT, growth)
+		if time > 600.0:
+			z_goal = lerpf(z_goal, C.CAM_ZOOM_OUT * 0.82, clampf((time - 600.0) / 280.0, 0.0, 1.0))
+		if z_goal < cam_zoom_target:
+			cam_zoom_target = z_goal
 	if cam_zoom != cam_zoom_target:
 		var k: float = 1.0 - exp(-dt / (C.CAM_ZOOM_DUR * 0.45))
 		cam_zoom += (cam_zoom_target - cam_zoom) * k
