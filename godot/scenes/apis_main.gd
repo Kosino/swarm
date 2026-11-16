@@ -54,6 +54,7 @@ var _had_planted: bool = false
 var _had_winter: bool = false
 var _had_brass: bool = false
 var _rust_flake_cd: float = 0.0
+var _scrap_flake_cd: float = 0.0
 var help_open: bool = false
 var _view: Rect2 = Rect2()
 var _help_draw: Node2D
@@ -134,8 +135,11 @@ func _ready() -> void:
 	camera.zoom = Vector2(zoom_target * world.cam_zoom, zoom_target * world.cam_zoom)
 	Atm.sync_light(_atm, camera.position)
 	Atm.sync_particles(_atm, camera.position)
-	var dusk0: float = maxf(world.dusk, clampf((world.time - 560.0) / 140.0, 0.0, 1.0) * 0.85)
-	dusk0 = maxf(dusk0, world.drought * 0.45)
+	## Dawn after brass (12:25) — suppress dusk ramp so meadows read as morning bloom.
+	var dusk0: float = 0.0
+	if world.brass_time == null:
+		dusk0 = maxf(world.dusk, clampf((world.time - 560.0) / 140.0, 0.0, 1.0) * 0.85)
+		dusk0 = maxf(dusk0, world.drought * 0.45)
 	Atm.set_dusk(_atm, dusk0)
 	_refresh_hud()
 	queue_redraw()
@@ -168,7 +172,30 @@ func _ready() -> void:
 				world._trigger_winter()
 			if world.brass_time == null:
 				world._trigger_brass()
-			world.brass_sheen = maxf(world.brass_sheen, 0.95)
+			## Pin dawn + scrap convoy so stills read 12:25 wow.
+			world.dusk = 0.0
+			world.cold = 0.0
+			world.meadow_bloom = maxf(world.meadow_bloom, 1.0)
+			world.brass_sheen = maxf(world.brass_sheen, 0.98)
+			world._assign_scrap_haulers()
+			## Spread haulers along the machine trail for a readable still.
+			if world.rust_machine != null:
+				var hi := 0
+				for w_sc in world.workers:
+					if int(w_sc.flower) != -4:
+						continue
+					w_sc.outbound = hi % 2 == 0
+					w_sc.carrying = not w_sc.outbound
+					w_sc.t = 0.2 + 0.12 * float(hi)
+					hi += 1
+				for _settle_b in range(14):
+					world.update(1.0 / 12.0)
+				var mid_x: float = lerpf(_hive().x, float(world.rust_machine.x), 0.42)
+				var mid_y: float = lerpf(_hive().y, float(world.rust_machine.y), 0.42)
+				camera.position = Iso.world_to_iso(mid_x, mid_y) + Vector2(0, -18)
+				camera.zoom = Vector2(0.92, 0.92)
+			_had_brass = true
+			_burst_scrap_flakes(_hive().x, _hive().y, 6)
 		if capture_at >= 820.0 and world.royal_cell == null:
 			world._trigger_royal()
 		## Capture-only: pin dual-colony sync so Age-3 stills read Dva úly foreshadow.
@@ -298,9 +325,12 @@ func _process(dt: float) -> void:
 	var h_iso := Iso.world_to_iso(h.x, h.y)
 	Atm.sync_light(_atm, h_iso, 0.4 + world.core_pulse * 0.28 + world.brass_sheen * 0.2)
 	## Presentational dusk ramp from ~10:00 even if hint beat is late — readable 11:00 dusk.
-	var dusk_v: float = maxf(world.dusk, clampf((world.time - 560.0) / 140.0, 0.0, 1.0) * 0.85)
-	## Drought heat haze leans dusk warm without replacing the winter/dusk beat.
-	dusk_v = maxf(dusk_v, world.drought * 0.45)
+	## 12:25 dawn clears it once brass scrap land (meadows bloom again).
+	var dusk_v: float = 0.0
+	if world.brass_time == null:
+		dusk_v = maxf(world.dusk, clampf((world.time - 560.0) / 140.0, 0.0, 1.0) * 0.85)
+		## Drought heat haze leans dusk warm without replacing the winter/dusk beat.
+		dusk_v = maxf(dusk_v, world.drought * 0.45)
 	Atm.set_dusk(_atm, dusk_v)
 	Atm.sync_particles(_atm, h_iso)
 	_refresh_hud()
@@ -523,6 +553,8 @@ func _tick_fx(dt: float) -> void:
 		Juice.spawn_ripple(_juice, hb.x, hb.y, true, Color(1.2, 0.95, 0.45, 0.8))
 		if world.rust_machine != null:
 			Juice.spawn_pop(_juice, float(world.rust_machine.x), float(world.rust_machine.y), Color(1.15, 0.9, 0.5, 0.9), 0.5)
+			_burst_scrap_flakes(float(world.rust_machine.x), float(world.rust_machine.y), 8)
+		_burst_scrap_flakes(hb.x, hb.y, 6)
 		for _i in range(6):
 			var ang: float = randf() * TAU
 			Juice.spawn_float(
@@ -534,6 +566,27 @@ func _tick_fx(dt: float) -> void:
 			)
 	elif world.brass_time != null:
 		_had_brass = true
+	## Ongoing shiny scrap glints while haulers work the machine trail.
+	if world.brass_time != null and world.brass_sheen > 0.5:
+		_scrap_flake_cd -= dt
+		if _scrap_flake_cd <= 0.0:
+			_scrap_flake_cd = 0.1
+			var sx: float = _hive().x
+			var sy: float = _hive().y
+			var found := false
+			for w_f in world.workers:
+				if int(w_f.flower) == -4 and w_f.carrying:
+					sx = float(w_f.x)
+					sy = float(w_f.y)
+					found = true
+					break
+			if not found and world.rust_machine != null:
+				sx = lerpf(_hive().x, float(world.rust_machine.x), 0.35 + randf() * 0.4)
+				sy = lerpf(_hive().y, float(world.rust_machine.y), 0.35 + randf() * 0.4)
+			Juice.spawn_pop(
+				_juice, sx + (randf() - 0.5) * 16.0, sy + (randf() - 0.5) * 10.0,
+				Color(1.3, 1.1, 0.55, 0.65 + world.brass_sheen * 0.25), 0.26
+			)
 	## Hive plant / chamber placement pops.
 	if world.planted and not _had_planted:
 		_had_planted = true
@@ -591,6 +644,20 @@ func _burst_rust_flakes(x: float, y: float, n: int) -> void:
 			y + sin(ang) * rad * 0.75,
 			Color(0.7, 0.38, 0.25, 0.75),
 			0.28 + randf() * 0.25
+		)
+
+
+func _burst_scrap_flakes(x: float, y: float, n: int) -> void:
+	## Shiny brass metal šupinky — cooler/brighter than rust flakes.
+	for i in range(n):
+		var ang: float = float(i) / maxf(1.0, float(n)) * TAU + randf() * 0.35
+		var rad: float = 12.0 + randf() * 36.0
+		Juice.spawn_pop(
+			_juice,
+			x + cos(ang) * rad,
+			y + sin(ang) * rad * 0.7,
+			Color(1.35, 1.1, 0.55, 0.8),
+			0.22 + randf() * 0.22
 		)
 
 
@@ -1122,13 +1189,22 @@ func _draw_chambers() -> void:
 			_draw_winter_cluster_ball()
 	if world.rust_machine != null:
 		var rm = world.rust_machine
+		var rm_iso := Iso.world_to_iso(rm.x, rm.y)
 		if ProArt.has(pro, "apis_rust_machine"):
 			## Secondary industrial dome — overview-like peripheral silhouette.
-			ProArt.blit(self, pro, "apis_rust_machine", Iso.world_to_iso(rm.x, rm.y), 0.72 if not _use_2x else 0.36, Color(1.05, 0.9, 0.75, 0.88 if not rm.looted else 0.42))
+			## After loot: hollowed wreck with residual brass glints.
+			var rm_mod := Color(1.05, 0.9, 0.75, 0.88 if not rm.looted else 0.48)
+			if rm.looted and world.brass_sheen > 0.2:
+				rm_mod = rm_mod.lerp(Color(1.2, 1.0, 0.6, 0.55), world.brass_sheen * 0.35)
+			ProArt.blit(self, pro, "apis_rust_machine", rm_iso, 0.72 if not _use_2x else 0.36, rm_mod)
 		elif atlas.has("apis2_kamen_dostaveny"):
 			_blit("apis2_kamen_dostaveny", rm.x, rm.y, 0.62 if not _use_2x else 0.31, Color(0.9, 0.58, 0.4, 0.78 if not rm.looted else 0.35))
 		else:
 			_draw_box(rm.x, rm.y, rm.r * 0.55, Color(0.55, 0.4, 0.3, 0.75), rm.r * 0.42)
+		if world.brass_time != null and world.brass_sheen > 0.4:
+			var tw: float = 0.5 + 0.5 * abs(sin(world.time * 3.5))
+			draw_circle(rm_iso, float(rm.r) * 0.35, Color(1.25, 1.05, 0.5, 0.12 * tw))
+			draw_arc(rm_iso, float(rm.r) * 0.55, 0, TAU, 28, Color(1.3, 1.1, 0.55, 0.28 * tw), 1.4)
 	if world.royal_cell != null and world.mvp_end_time == null and world.dim_all <= 0.0:
 		_draw_royal_cell_hero()
 	if world.mvp_end_time != null:
@@ -1244,8 +1320,14 @@ func _draw_workers() -> void:
 		if not SwarmGfx.iso_in_view(Iso.world_to_iso(w.x, w.y), _view):
 			continue
 		var clustered: bool = int(w.flower) == -3
+		var scrap_haul: bool = int(w.flower) == -4
 		var dir := "SE"
-		if w.outbound and w.flower >= 0 and w.flower < world.flowers.size():
+		if scrap_haul and world.rust_machine != null:
+			if w.outbound:
+				dir = _bee_dir(float(world.rust_machine.x) - w.x, float(world.rust_machine.y) - w.y)
+			else:
+				dir = _bee_dir(world.cx - w.x, world.cy - w.y)
+		elif w.outbound and w.flower >= 0 and w.flower < world.flowers.size():
 			var f = world.flowers[w.flower]
 			dir = _bee_dir(f.x - w.x, f.y - w.y)
 		elif clustered:
@@ -1259,7 +1341,7 @@ func _draw_workers() -> void:
 		if atlas.has(name):
 			## Build 22: 3/4 letavka + hover/walk anim polish (overview drones).
 			var ph: float = float(w.phase)
-			var in_flight: bool = int(w.flower) >= 0 or int(w.flower) == -2 or clustered
+			var in_flight: bool = int(w.flower) >= 0 or int(w.flower) == -2 or clustered or scrap_haul
 			var wing_rate: float = 14.0 if in_flight else 7.0
 			if cold_dim > 0.0 and not clustered:
 				wing_rate *= lerpf(1.0, 0.55, cold_dim / 0.4)
@@ -1270,16 +1352,30 @@ func _draw_workers() -> void:
 			if clustered:
 				sc *= 1.06
 			var mod := Color(1.08, 1.0, 0.88, 0.96)
-			if w.carrying:
+			if scrap_haul:
+				mod = Color(1.22, 1.05, 0.7, 0.98) if w.carrying else Color(1.12, 0.98, 0.82, 0.96)
+			elif w.carrying:
 				mod = Color(1.18, 1.08, 0.72, 0.98)
-			if cold_dim > 0.0 and not clustered:
+			if cold_dim > 0.0 and not clustered and not scrap_haul:
 				mod = mod.lerp(Color(0.7, 0.72, 0.78, 0.9), cold_dim)
 			if clustered and world.cluster_warm > 0.1:
 				mod = mod.lerp(Color(1.35, 1.05, 0.55, 1.0), world.cluster_warm * 0.45)
 			if SwarmGfx.soft_shadows():
 				_draw_soft_shadow(w.x, w.y, 6.5 if in_flight else 5.0, 0.2 if in_flight else 0.24)
 			_blit(name, w.x, w.y, sc, mod, Vector2(0.0, lift_y))
-			if w.carrying and atlas.has("apis2_overlay_med") and SwarmGfx.q_level() < 2:
+			## Scrap carriers: bright brass glint (not nectar pollen).
+			if scrap_haul and w.carrying:
+				if atlas.has("apis2_overlay_med") and SwarmGfx.q_level() < 2:
+					_blit(
+						"apis2_overlay_med", w.x, w.y,
+						0.18 if not _use_2x else 0.09,
+						Color(1.45, 1.2, 0.55, 0.72),
+						Vector2(0.0, lift_y - 5.0)
+					)
+				var iso_gl := Iso.world_to_iso(w.x, w.y) + Vector2(0.0, lift_y - 6.0)
+				var glint: float = 0.45 + 0.55 * abs(sin(world.time * 5.0 + ph))
+				draw_circle(iso_gl, 2.4, Color(1.4, 1.2, 0.55, 0.55 * glint))
+			elif w.carrying and atlas.has("apis2_overlay_med") and SwarmGfx.q_level() < 2:
 				_blit(
 					"apis2_overlay_med", w.x, w.y,
 					0.2 if not _use_2x else 0.1,
