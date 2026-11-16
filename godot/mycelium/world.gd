@@ -257,6 +257,18 @@ func _spawn_fruit_at(x: float, y: float) -> void:
 	})
 
 
+func _sfx_dum(big: bool = false, soft: bool = false) -> void:
+	if _silent:
+		return
+	SwarmSfx.play_dum(big, soft)
+
+
+func _sfx_soft(kind: String) -> void:
+	if _silent:
+		return
+	SwarmSfx.play_soft(kind)
+
+
 func _trigger_decay(m: Dictionary) -> void:
 	if m.encircled or m.kind == "fruit":
 		return
@@ -264,6 +276,8 @@ func _trigger_decay(m: Dictionary) -> void:
 	decay_count += 1
 	if decay_time == null:
 		decay_time = time
+		_sfx_soft("bubble")
+		_sfx_dum(true)
 	if seed != null:
 		for i in range(18):
 			var a: float = _rnd() * PI * 2.0
@@ -307,6 +321,7 @@ func _trigger_fruit(m: Dictionary) -> void:
 		_spawn_fruit_at(m.x + (_rnd() - 0.5) * 30.0, m.y + (_rnd() - 0.5) * 30.0)
 	if fruit_time == null:
 		fruit_time = time
+		_sfx_soft("puff")
 		for s in segs:
 			if _rnd() < 0.35:
 				s.th = mini(3, int(s.th) + 1)
@@ -322,6 +337,7 @@ func _trigger_spore() -> void:
 	if fruits.size() < 1:
 		return
 	spore_time = time
+	_sfx_soft("rain")
 	for f in fruits:
 		for i in range(22):
 			var a: float = _rnd() * PI * 2.0
@@ -352,6 +368,7 @@ func _trigger_join() -> void:
 	if join_time != null or germs.size() == 0 or seed == null:
 		return
 	join_time = time
+	_sfx_soft("beat")
 	heart_beat = 1.0
 	network_pulse = 1.0
 	network_bright = 1.0
@@ -378,6 +395,7 @@ func _trigger_hint() -> void:
 	if hint_time != null:
 		return
 	hint_time = time
+	_sfx_soft("hiss")
 	foreign_net = 1.0
 	var cx0: float = seed.x if seed != null else float(C.W) / 2.0
 	var cy0: float = seed.y if seed != null else float(C.H) / 2.0
@@ -405,6 +423,7 @@ func _trigger_quarantine() -> void:
 	if quarantine_time != null or infected == null or infected.dead:
 		return
 	quarantine_time = time
+	_sfx_soft("clean")
 	infected.dead = true
 	infected.grey = 1.0
 	foreign_net = 0.15
@@ -435,6 +454,8 @@ func _trigger_skeleton() -> void:
 	if skeleton_time != null or skeleton == null or skeleton.encircled:
 		return
 	skeleton_time = time
+	_sfx_soft("rain")
+	_sfx_dum(true)
 	skeleton.encircled = true
 	network_gold = 1.0
 	network_bright = 1.0
@@ -474,6 +495,8 @@ func _trigger_giant() -> void:
 	if giant_time != null:
 		return
 	giant_time = time
+	_sfx_soft("beat")
+	_sfx_dum(true)
 	var fp := _main_fruit_pos()
 	giant_fruit = {"x": fp.x, "y": fp.y - 10.0, "r": C.GIANT_FRUIT_R, "grow": 0.0}
 	network_bright = 1.0
@@ -486,6 +509,7 @@ func _trigger_seeds_hint() -> void:
 	if seeds_time != null or giant_fruit == null:
 		return
 	seeds_time = time
+	_sfx_soft("puff")
 	dim_all = 1.0
 	seed_capsule = {
 		"x": giant_fruit.x,
@@ -499,6 +523,7 @@ func _trigger_mvp_end() -> void:
 	if mvp_end_time != null:
 		return
 	mvp_end_time = time
+	_sfx_soft("beat")
 	orbit_t = 0.01
 	cam_zoom_target = 0.22
 	if seed_capsule != null:
@@ -1085,11 +1110,13 @@ func _anchor(tip: Dictionary, p: Dictionary) -> void:
 			anchors_on += 1
 	if first_anchor == null:
 		first_anchor = time
+		_sfx_dum(false)
 
 	var is_mid_wow: int = not mid_wow_done and anchors_on == 3 and not p.get("big", false)
 	if is_mid_wow:
 		mid_wow_done = true
 		midstep = time
+		_sfx_dum(false, true)
 		var net = _whole_network_path(p.x, p.y)
 		pulses.append({"path": net if net.size() > 0 else path, "t": 0.0, "dur": 0.85 + float(net.size()) * 0.0035})
 		network_pulse = 1.0
@@ -1106,6 +1133,7 @@ func _anchor(tip: Dictionary, p: Dictionary) -> void:
 	if p.get("big", false):
 		big_anchored = true
 		big_anchor_time = time
+		_sfx_dum(true)
 		network_pulse = 1.0
 		cam_zoom_target = C.CAM_ZOOM_OUT
 		for s in segs:
@@ -1151,6 +1179,7 @@ func _try_fusion(t: Dictionary) -> bool:
 		fusion_cd = C.FUSION_COOLDOWN
 		if first_fusion == null:
 			first_fusion = time
+			_sfx_dum(false)
 		t.seg = a
 		t.sx = mid_x
 		t.sy = mid_y
@@ -1182,6 +1211,7 @@ func _try_fusion(t: Dictionary) -> bool:
 		fusion_cd = C.FUSION_COOLDOWN
 		if first_fusion == null:
 			first_fusion = time
+			_sfx_dum(false)
 		t.seg = idx
 		t.sx = hit.cx
 		t.sy = hit.cy

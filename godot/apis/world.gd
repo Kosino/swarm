@@ -336,12 +336,37 @@ func _is_adjacent_to_hive(q: int, r: int) -> bool:
 	return false
 
 
+func _sfx_dum(deep: bool = false) -> void:
+	if silent:
+		return
+	SwarmSfx.play_dum(deep)
+
+
+func _sfx_soft(kind: String) -> void:
+	if silent:
+		return
+	SwarmSfx.play_soft(kind)
+
+
+func _sfx_bzz() -> void:
+	if silent:
+		return
+	SwarmSfx.play_bzz()
+
+
+func _sfx_chime() -> void:
+	if silent:
+		return
+	SwarmSfx.play_chime()
+
+
 func _try_build(q: int, r: int) -> bool:
 	if not planted:
 		if q != 0 or r != 0:
 			return false
 		planted = true
 		core = {"x": cx, "y": cy}
+		_sfx_dum(false)
 		var best: Vector2i = RING[0]
 		var bd := INF
 		for cell in RING:
@@ -366,12 +391,14 @@ func _try_build(q: int, r: int) -> bool:
 		return false
 	if wax < C.WAX_MIN:
 		shiver = C.SHIVER_DUR
+		_sfx_bzz()
 		return false
 	chambers[_hex_key(q, r)] = {
 		"q": q, "r": r, "grow": 0.0, "growDur": C.BUILD_DUR,
 		"amber": 0.0, "hatchT": 0.0, "hatched": false, "pulse": 0.0,
 	}
 	wax = maxf(0.0, wax - C.WAX_COST)
+	_sfx_soft("gesture")
 	return true
 
 
@@ -384,6 +411,7 @@ func _check_ring() -> void:
 			return
 	ring_closed = true
 	ring_time = time
+	_sfx_dum(true)
 	hive_scale = 1.18
 	core_pulse = 1.0
 
@@ -392,8 +420,12 @@ func _check_traffic() -> void:
 	if traffic:
 		return
 	if workers.size() >= C.TRAFFIC_WORKERS and routes.size() >= C.TRAFFIC_ROUTES:
+		var was := traffic
 		traffic = true
-		traffic_time = time
+		if traffic_time == null:
+			traffic_time = time
+			if not was:
+				_sfx_soft("dual")
 
 
 func _spawn_bloom() -> void:
@@ -453,6 +485,7 @@ func _assign_route(flower_idx: int) -> bool:
 			big_flight = true
 			big_flight_time = time
 			big_flight_t = 0.0
+			_sfx_dum(true)
 			cam_zoom_target = C.CAM_ZOOM_OUT
 			wax = minf(C.WAX_MAX, wax + 0.55)
 			for ch in chambers.values():
@@ -650,10 +683,13 @@ func _activate_trail(pts: Array) -> bool:
 	if kind == "meadow" and trail_time == null:
 		trail_time = time
 		_bump_perform("trail")
+		_sfx_soft("open")
 		wax = minf(C.WAX_MAX, wax + 0.35)
 	elif kind == "arc" and floor2_time == null:
 		floor2_time = time
 		_bump_perform("arc")
+		_sfx_soft("copper")
+		_sfx_dum(true)
 		floor2 = true
 		hive_scale = maxf(hive_scale, 1.32)
 		core_pulse = 1.0
@@ -685,6 +721,7 @@ func _activate_trail(pts: Array) -> bool:
 	elif kind == "highway" and swarm_time == null:
 		swarm_time = time
 		_bump_perform("swarm")
+		_sfx_soft("dual")
 		var last = pts[pts.size() - 1]
 		second_hive = {
 			"x": meadow2.x if meadow2 != null else last.x,
@@ -707,6 +744,7 @@ func _activate_trail(pts: Array) -> bool:
 	elif kind == "join" and join_time == null and second_hive != null:
 		join_time = time
 		_bump_perform("join")
+		_sfx_soft("chord")
 		highway_glow = 1.4
 		hive_pulse_sync = 1.0
 		meadow_bloom = 1.0
@@ -750,6 +788,7 @@ func _trigger_dusk_hint() -> void:
 	if hint_time != null:
 		return
 	hint_time = time
+	_sfx_soft("wind")
 	dusk = 1.0
 	cold = 0.4
 	worker_slow = 0.55
@@ -773,6 +812,8 @@ func _trigger_winter() -> void:
 		return
 	winter_time = time
 	_bump_perform("winter")
+	_sfx_soft("dual")
+	_sfx_dum(true)
 	cold = 0.0
 	worker_slow = 1.0
 	dusk = maxf(0.0, dusk - 0.5)
@@ -791,6 +832,7 @@ func _trigger_brass() -> void:
 		return
 	brass_time = time
 	_bump_perform("brass")
+	_sfx_soft("copper")
 	rust_machine.looted = true
 	brass_sheen = 1.0
 	core_pulse = 1.0
@@ -809,6 +851,8 @@ func _trigger_royal() -> void:
 		return
 	royal_time = time
 	_bump_perform("royal")
+	_sfx_soft("chord")
+	_sfx_dum(true)
 	floor3 = true
 	hive_scale = maxf(hive_scale, 1.55)
 	core_pulse = 1.0
@@ -822,6 +866,7 @@ func _trigger_seeds_hint() -> void:
 	if seeds_time != null or royal_cell == null:
 		return
 	seeds_time = time
+	_sfx_soft("open")
 	dim_all = 1.0
 	royal_cell.capped = true
 	royal_cell.glow = 1.0
@@ -832,6 +877,7 @@ func _trigger_mvp_end() -> void:
 	if mvp_end_time != null:
 		return
 	mvp_end_time = time
+	_sfx_soft("chord")
 	orbit_t = 0.01
 	cam_zoom_target = 0.22
 	if royal_cell != null:
@@ -872,6 +918,7 @@ func update(dt: float) -> void:
 				})
 				if first_worker == null:
 					first_worker = time
+					_sfx_dum(false)
 				core_pulse = maxf(core_pulse, 0.6)
 				if routes.size() > 0:
 					var rt = routes[workers.size() % routes.size()]
@@ -976,6 +1023,7 @@ func update(dt: float) -> void:
 					var is_first: bool = first_nectar == null
 					if is_first:
 						first_nectar = time
+						_sfx_soft("open")
 					var full: bool = is_first or time - last_full_nectar >= C.NECTAR_FULL_CD
 					if full:
 						last_full_nectar = time
@@ -1030,6 +1078,7 @@ func update(dt: float) -> void:
 			tree_attract_pulse = 0.45 + 0.35 * sin(time * 2.2)
 			if not was or time - last_chime > 4.5:
 				last_chime = time
+				_sfx_chime()
 		else:
 			tree_attract_pulse = maxf(0.0, tree_attract_pulse - dt)
 

@@ -1,0 +1,105 @@
+name: Release MVP
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.1.0-mvp)"
+        required: true
+        default: "v0.1.0-mvp"
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+
+      - name: Cache Godot
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-4.3-stable-linux-templates
+
+      - name: Install Godot 4.3
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/godot" "$HOME/.local/share/godot/export_templates/4.3.stable"
+          curl -sL -o /tmp/godot.zip \
+            "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip"
+          unzip -o /tmp/godot.zip -d "$HOME/godot"
+          curl -sL -o /tmp/templates.tpz \
+            "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz"
+          unzip -o /tmp/templates.tpz -d /tmp/godot-templates
+          cp /tmp/godot-templates/templates/* "$HOME/.local/share/godot/export_templates/4.3.stable/"
+          chmod +x "$HOME/godot"/Godot_v4.3-stable_linux.x86_64
+
+      - name: Headless acceptance
+        run: |
+          GODOT="$HOME/godot/Godot_v4.3-stable_linux.x86_64"
+          "$GODOT" --headless --path godot --import
+          "$GODOT" --headless --path godot --script res://mycelium/headless.gd | tee godot-sim-mycelium.json
+          python3 - <<'PY'
+          import json,sys
+          text=open("godot-sim-mycelium.json").read()
+          start=text.find("{")
+          data=json.loads(text[start:])
+          print("mycelium medians", data.get("medians"))
+          sys.exit(0 if data.get("ok") else 1)
+          PY
+          "$GODOT" --headless --path godot --script res://apis/headless.gd | tee godot-sim-apis.json
+          python3 - <<'PY'
+          import json,sys
+          text=open("godot-sim-apis.json").read()
+          start=text.find("{")
+          data=json.loads(text[start:])
+          print("apis medians", data.get("medians"))
+          sys.exit(0 if data.get("ok") else 1)
+          PY
+
+      - name: Export Windows zip
+        run: |
+          GODOT="$HOME/godot/Godot_v4.3-stable_linux.x86_64"
+          mkdir -p godot/export/windows
+          "$GODOT" --headless --path godot --import
+          "$GODOT" --headless --path godot --export-release "Windows Desktop" "export/windows/SWARM.exe"
+          cd godot/export/windows
+          zip -9r "$GITHUB_WORKSPACE/SWARM-windows.zip" .
+          ls -la "$GITHUB_WORKSPACE/SWARM-windows.zip"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}"
+          NOTES=$(cat <<EOF
+          SWARM MVP \`${TAG}\`
+
+          - Godot 4.3 isometric Mycelium + Apis (0–15) with main menu
+          - Procedural ambient + gesture/wow SFX, volume in menu
+          - Autosave / continue
+          - Web play: https://kosino.github.io/swarm/godot/
+          - Canvas sketch remains at https://kosino.github.io/swarm/
+
+          Asset: \`SWARM-windows.zip\` (Windows x86_64, embedded .pck).
+          EOF
+          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" SWARM-windows.zip --clobber
+          else
+            gh release create "$TAG" SWARM-windows.zip \
+              --title "SWARM ${TAG}" \
+              --notes "$NOTES"
+          fi

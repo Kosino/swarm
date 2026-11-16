@@ -1,0 +1,202 @@
+{
+  "1x": {
+    "apis_iso_louka_a": [
+      64.0,
+      32.0
+    ],
+    "apis_iso_louka_b": [
+      64.0,
+      32.0
+    ],
+    "apis_iso_louka_c": [
+      64.0,
+      32.0
+    ],
+    "apis_iso_louka_kvetouci": [
+      64.0,
+      32.0
+    ],
+    "apis_iso_louka_odkvetla": [
+      64.0,
+      32.0
+    ],
+    "apis_iso_feromon_NE": [
+      64.0,
+      32.0
+    ],
+    "apis_iso_feromon_SE": [
+      64.0,
+      32.0
+    ],
+    "apis_iso_feromon_tip": [
+      64.0,
+      32.0
+    ],
+    "apis_iso_feromon_tip_SE": [
+      64.0,
+      32.0
+    ],
+    "apis_iso_overlay_soumrak_rez": [
+      64.0,
+      32.0
+    ],
+    "apis_iso_zakladaci_kamen": [
+      50.0,
+      116.0
+    ],
+    "apis_iso_ul_2": [
+      136.0,
+      250.0
+    ],
+    "apis_iso_plast_p1": [
+      66.0,
+      146.0
+    ],
+    "apis_iso_plast_p2": [
+      66.0,
+      147.0
+    ],
+    "apis_iso_vcela_let_NE": [
+      24.0,
+      48.0
+    ],
+    "apis_iso_vcela_let_NW": [
+      24.0,
+      48.0
+    ],
+    "apis_iso_vcela_let_SE": [
+      24.0,
+      48.0
+    ],
+    "apis_iso_vcela_let_SW": [
+      24.0,
+      48.0
+    ],
+    "apis_iso_stavitelka_NE": [
+      16.0,
+      25.0
+    ],
+    "apis_iso_stavitelka_NW": [
+      16.0,
+      25.0
+    ],
+    "apis_iso_stavitelka_SE": [
+      16.0,
+      25.0
+    ],
+    "apis_iso_stavitelka_SW": [
+      16.0,
+      25.0
+    ],
+    "apis_iso_roj": [
+      53.0,
+      78.0
+    ]
+  },
+  "2x": {
+    "apis_iso_louka_a_2x": [
+      128.0,
+      64.0
+    ],
+    "apis_iso_louka_b_2x": [
+      128.0,
+      64.0
+    ],
+    "apis_iso_louka_c_2x": [
+      128.0,
+      64.0
+    ],
+    "apis_iso_louka_kvetouci_2x": [
+      128.0,
+      64.0
+    ],
+    "apis_iso_louka_odkvetla_2x": [
+      128.0,
+      64.0
+    ],
+    "apis_iso_feromon_NE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis_iso_feromon_SE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis_iso_feromon_tip_2x": [
+      128.0,
+      64.0
+    ],
+    "apis_iso_feromon_tip_SE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis_iso_overlay_soumrak_rez_2x": [
+      128.0,
+      64.0
+    ],
+    "apis_iso_zakladaci_kamen_2x": [
+      100.0,
+      232.0
+    ],
+    "apis_iso_ul_2_2x": [
+      272.0,
+      500.0
+    ],
+    "apis_iso_plast_p1_2x": [
+      132.0,
+      292.0
+    ],
+    "apis_iso_plast_p2_2x": [
+      132.0,
+      294.0
+    ],
+    "apis_iso_vcela_let_NE_2x": [
+      48.0,
+      96.0
+    ],
+    "apis_iso_vcela_let_NW_2x": [
+      48.0,
+      96.0
+    ],
+    "apis_iso_vcela_let_SE_2x": [
+      48.0,
+      96.0
+    ],
+    "apis_iso_vcela_let_SW_2x": [
+      48.0,
+      96.0
+    ],
+    "apis_iso_stavitelka_NE_2x": [
+      32.0,
+      50.0
+    ],
+    "apis_iso_stavitelka_NW_2x": [
+      32.0,
+      50.0
+    ],
+    "apis_iso_stavitelka_SE_2x": [
+      32.0,
+      50.0
+    ],
+    "apis_iso_stavitelka_SW_2x": [
+      32.0,
+      50.0
+    ],
+    "apis_iso_roj_2x": [
+      106.0,
+      156.0
+    ]
+  },
+  "stack_1x": {
+    "apis_iso_plast_p1": [
+      6.756902535689491,
+      -89.04639434533028
+    ]
+  },
+  "stack_2x": {
+    "apis_iso_plast_p1_2x": [
+      13.513805071378982,
+      -178.09278869066057
+    ]
+  }
+}

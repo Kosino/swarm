@@ -4,10 +4,15 @@ config_version=5
 [application]
 
 config/name="SWARM"
-config/description="SWARM Mycelium + Apis isometric builder — Godot 4.3 port (Build #9 menu + Age 3)"
+config/description="SWARM Mycelium + Apis isometric builder — Godot 4.3 MVP (Build #10)"
+config/version="0.1.0-mvp"
 run/main_scene="res://scenes/menu.tscn"
 config/features=PackedStringArray("4.3", "Forward Plus")
 config/icon="res://icon.png"
+
+[autoload]
+
+SwarmAudio="*res://audio/swarm_audio.gd"
 
 [display]
 
