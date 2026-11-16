@@ -5,12 +5,46 @@ class_name ApisIsoAtlas
 
 const ROOT := "res://art/apis_iso_v2/"
 const JSON_PATH := ROOT + "godot_atlas.json"
+## Build 22: art_drop iso 3/4 worker/drone + builder sprites prefer loose sprites/ (full wings/legs).
+const LOOSE_WORKERS := [
+	"apis2_letavka_NE", "apis2_letavka_NW", "apis2_letavka_SE", "apis2_letavka_SW",
+	"apis2_stavitelka_NE", "apis2_stavitelka_NW", "apis2_stavitelka_SE", "apis2_stavitelka_SW",
+	"apis2_stavitelka_neseni_NE", "apis2_stavitelka_neseni_NW",
+	"apis2_stavitelka_neseni_SE", "apis2_stavitelka_neseni_SW",
+]
 
 
 static func _logical_name(name: String, use_2x: bool) -> String:
 	if use_2x and name.ends_with("_2x"):
 		return name.substr(0, name.length() - 3)
 	return name
+
+
+static func _apply_loose_workers(out: Dictionary, use_2x: bool) -> void:
+	## Prefer untrimmed art_drop 3/4 bees over atlas crops when present.
+	for logical in LOOSE_WORKERS:
+		var file_name: String = logical + ("_2x.png" if use_2x else ".png")
+		var path: String = ROOT + "sprites/" + file_name
+		if not ResourceLoader.exists(path) and not FileAccess.file_exists(path):
+			continue
+		var tex: Texture2D = load(path) as Texture2D
+		if tex == null:
+			continue
+		var sz: Vector2 = tex.get_size()
+		var pivot := Vector2(sz.x * 0.5, sz.y * 0.86)
+		if out.has(logical) and out[logical].has("pivot"):
+			## Keep atlas pivot X ratio; seat feet slightly above bottom for walk/hover.
+			var ap: Vector2 = out[logical].pivot
+			pivot.x = clampf(float(ap.x), sz.x * 0.25, sz.x * 0.75)
+			if use_2x and float(ap.x) < sz.x * 0.2:
+				pivot.x = sz.x * 0.5
+		var foot: float = 4.0 * (2.0 if use_2x else 1.0)
+		var offset := Vector2(-pivot.x, -pivot.y + foot)
+		out[logical] = {
+			"texture": tex,
+			"pivot": pivot,
+			"offset": offset,
+		}
 
 
 static func load_all(use_2x: bool = false) -> Dictionary:
@@ -58,6 +92,7 @@ static func load_all(use_2x: bool = false) -> Dictionary:
 			var sa: Dictionary = s["stack_anchor"]
 			entry["stack_anchor"] = Vector2(float(sa["x"]), float(sa["y"]))
 		out[logical] = entry
+	_apply_loose_workers(out, use_2x)
 	return out
 
 
