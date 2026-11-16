@@ -140,7 +140,7 @@ func _planet_centers() -> Dictionary:
 
 
 func _planet_radius(rod: String) -> float:
-	var base := 78.0 if phase == Phase.TITLE else 110.0
+	var base := 96.0 if phase == Phase.TITLE else 138.0
 	if phase == Phase.DIVE and dive_rod == rod:
 		return base * (1.0 + dive_t * 2.8)
 	if hover == rod and phase == Phase.CHOOSE:
@@ -225,9 +225,21 @@ func _enter_rod(rod: String) -> void:
 		get_tree().change_scene_to_file("res://scenes/main.tscn")
 
 
+func _draw_cover(tex: Texture2D, vp: Vector2) -> void:
+	## Full-bleed cover (crop edges) — no letterbox bars.
+	var ts: Vector2 = tex.get_size()
+	if ts.x <= 1.0 or ts.y <= 1.0:
+		draw_texture_rect(tex, Rect2(Vector2.ZERO, vp), false)
+		return
+	var sc: float = maxf(vp.x / ts.x, vp.y / ts.y)
+	var sz: Vector2 = ts * sc
+	var origin: Vector2 = (vp - sz) * 0.5
+	draw_texture_rect(tex, Rect2(origin, sz), false)
+
+
 func _draw() -> void:
 	var vp := get_viewport_rect().size
-	## Painted menu backgrounds from pro_v3.
+	## Painted menu backgrounds from pro_v3 — full-bleed cover.
 	var bg_key := "menu_title"
 	if phase == Phase.CHOOSE:
 		bg_key = "menu_choose"
@@ -237,7 +249,7 @@ func _draw() -> void:
 	if bg == null:
 		bg = ProArt.tex(pro, "menu_bg")
 	if bg != null:
-		draw_texture_rect(bg, Rect2(Vector2.ZERO, vp), false)
+		_draw_cover(bg, vp)
 	else:
 		draw_rect(Rect2(Vector2.ZERO, vp), COL_BG)
 		draw_circle(vp * 0.5 + Vector2(-120, 40), 220.0, Color(0.55, 0.35, 0.12, 0.12))
@@ -261,6 +273,11 @@ func _draw() -> void:
 		_draw_volume_icon(_volume_pos())
 		if continue_available:
 			_draw_continue_icon(_continue_pos(), continue_hover)
+		## Branded rod icons under planets.
+		if ProArt.has(pro, "icon_apis"):
+			ProArt.blit(self, pro, "icon_apis", centers.apis + Vector2(0, _planet_radius("apis") + 52.0), 0.35, Color(1, 1, 1, 0.9))
+		if ProArt.has(pro, "icon_mycelium"):
+			ProArt.blit(self, pro, "icon_mycelium", centers.mycelium + Vector2(0, _planet_radius("mycelium") + 52.0), 0.35, Color(1, 1, 1, 0.9))
 
 	if phase == Phase.DIVE:
 		var wash := Color(COL_APIS.r, COL_APIS.g, COL_APIS.b, dive_t * 0.55) if dive_rod == "apis" \

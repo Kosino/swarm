@@ -36,10 +36,18 @@ const DEFAULT_ALIASES := {
 	"apis_tex_louka_ziva": "apis_tex_louka_ziva",
 	"apis_tex_skala": "apis_tex_skala",
 	"apis_tex_skala_okraj": "apis_tex_skala_okraj",
-	## Phase B placeholders (same filenames when Art Pipeline drops them):
-	"reticle": "ui_reticle",
-	"ending_planet": "ending_planet",
-	"ui_panel": "ui_panel",
+	## Phase B (data-driven; Art Pipeline may overwrite same files):
+	"reticle": "reticle_myc",
+	"reticle_myc": "reticle_myc",
+	"reticle_apis": "reticle_apis",
+	"ending_planet": "planeta2_dalka",
+	"orbit_bg": "orbit_bg",
+	"ui_panel": "panel_9slice",
+	"btn_normal": "btn_normal",
+	"btn_hover": "btn_hover",
+	"btn_pressed": "btn_pressed",
+	"icon_apis": "icon_apis",
+	"icon_mycelium": "icon_mycelium",
 }
 
 

@@ -45,8 +45,8 @@ var first_workers: Variant = null
 var big_spawned: bool = false
 var big_anchored: bool = false
 var big_anchor_time: Variant = null
-var cam_zoom: float = 1.0
-var cam_zoom_target: float = 1.0
+var cam_zoom: float = C.CAM_ZOOM_IN
+var cam_zoom_target: float = C.CAM_ZOOM_IN
 var network_pulse: float = 0.0
 var network_bright: float = 0.0
 var mid_wow_done: bool = false
@@ -1326,9 +1326,9 @@ func update(dt: float) -> void:
 			+ time / 900.0 * 0.35,
 			0.0, 1.0
 		)
-		var z_goal: float = lerpf(1.0, C.CAM_ZOOM_OUT, growth)
+		var z_goal: float = lerpf(C.CAM_ZOOM_IN, C.CAM_ZOOM_OUT, growth)
 		if time > 600.0:
-			z_goal = lerpf(z_goal, C.CAM_ZOOM_OUT * 0.82, clampf((time - 600.0) / 280.0, 0.0, 1.0))
+			z_goal = lerpf(z_goal, C.CAM_ZOOM_OUT * 0.9, clampf((time - 600.0) / 280.0, 0.0, 1.0))
 		if z_goal < cam_zoom_target:
 			cam_zoom_target = z_goal
 	if cam_zoom != cam_zoom_target:

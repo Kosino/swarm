@@ -1,6 +1,7 @@
 extends RefCounted
 class_name SwarmAtmosphere
-## Shared Build-12 atmosphere: clear color, glow env, canvas mood, core light, fog, particles, vignette.
+## Shared Build-12 atmosphere: clear color, glow env, canvas mood, soft core light, dust, vignette.
+## No circular world-space fog arcs (those read as a dark ring).
 
 const STheme = preload("res://ui/swarm_theme.gd")
 
@@ -13,11 +14,11 @@ static func apply(host: Node2D, rod: String, camera: Camera2D, hud: CanvasLayer)
 	var env := Environment.new()
 	env.background_mode = Environment.BG_CANVAS
 	env.glow_enabled = true
-	env.glow_intensity = 0.55 if rod == "apis" else 0.48
-	env.glow_strength = 0.9
-	env.glow_bloom = 0.12
+	env.glow_intensity = 0.62 if rod == "apis" else 0.55
+	env.glow_strength = 0.95
+	env.glow_bloom = 0.14
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
-	env.glow_hdr_threshold = 0.85
+	env.glow_hdr_threshold = 0.78
 	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 	var we := WorldEnvironment.new()
 	we.name = "WorldEnvironment"
@@ -25,28 +26,29 @@ static func apply(host: Node2D, rod: String, camera: Camera2D, hud: CanvasLayer)
 	host.add_child(we)
 	nodes["world_env"] = we
 
+	## Keep mood near-white so PointLight falloff never reads as a dark mid-ring.
 	var mood := CanvasModulate.new()
 	mood.name = "Mood"
 	if rod == "apis":
-		mood.color = Color(1.05, 0.98, 0.88)
+		mood.color = Color(1.02, 0.99, 0.94)
 	else:
-		mood.color = Color(0.88, 0.98, 0.9)
+		mood.color = Color(0.96, 1.0, 0.97)
 	host.add_child(mood)
 	nodes["mood"] = mood
 
 	var light := PointLight2D.new()
 	light.name = "CoreLight"
-	light.energy = 0.85 if rod == "apis" else 0.7
-	light.color = Color(1.0, 0.82, 0.45) if rod == "apis" else Color(0.55, 0.95, 0.65)
-	light.texture_scale = 2.8
+	light.energy = 0.55 if rod == "apis" else 0.48
+	light.color = Color(1.0, 0.86, 0.55) if rod == "apis" else Color(0.6, 0.98, 0.72)
+	light.texture_scale = 4.2
 	light.range_item_cull_mask = 1
-	## Soft circular falloff via generated texture.
-	var img := Image.create(128, 128, false, Image.FORMAT_RGBA8)
-	for y in range(128):
-		for x in range(128):
-			var d: float = Vector2(x - 64, y - 64).length() / 64.0
-			var a: float = clampf(1.0 - d, 0.0, 1.0)
-			a = a * a
+	## Very soft radial falloff (smoothstep) — no hard bright/dark band.
+	var img := Image.create(256, 256, false, Image.FORMAT_RGBA8)
+	for y in range(256):
+		for x in range(256):
+			var d: float = Vector2(x - 128, y - 128).length() / 128.0
+			var a: float = 1.0 - smoothstep(0.15, 1.0, d)
+			a = a * a * (3.0 - 2.0 * a)
 			img.set_pixel(x, y, Color(1, 1, 1, a))
 	var tex := ImageTexture.create_from_image(img)
 	light.texture = tex
@@ -61,7 +63,7 @@ static func apply(host: Node2D, rod: String, camera: Camera2D, hud: CanvasLayer)
 
 	var dust := CPUParticles2D.new()
 	dust.name = "AmbientDust"
-	dust.amount = 36
+	dust.amount = 40
 	dust.lifetime = 7.0
 	dust.preprocess = 3.0
 	dust.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
@@ -80,7 +82,7 @@ static func apply(host: Node2D, rod: String, camera: Camera2D, hud: CanvasLayer)
 	host.add_child(dust)
 	nodes["dust"] = dust
 
-	## Vignette overlay (screen space).
+	## Soft screen-edge vignette only (no circular world ring).
 	var vig_layer := CanvasLayer.new()
 	vig_layer.name = "Vignette"
 	vig_layer.layer = 50
@@ -92,8 +94,8 @@ static func apply(host: Node2D, rod: String, camera: Camera2D, hud: CanvasLayer)
 	sh.code = _vignette_code()
 	var mat := ShaderMaterial.new()
 	mat.shader = sh
-	mat.set_shader_parameter("strength", 0.58)
-	mat.set_shader_parameter("softness", 0.62)
+	mat.set_shader_parameter("strength", 0.32)
+	mat.set_shader_parameter("softness", 0.78)
 	mat.set_shader_parameter("tint", clear)
 	rect.material = mat
 	vig_layer.add_child(rect)
@@ -129,13 +131,14 @@ static func apply(host: Node2D, rod: String, camera: Camera2D, hud: CanvasLayer)
 static func _vignette_code() -> String:
 	return """
 shader_type canvas_item;
-uniform float strength : hint_range(0.0, 1.0) = 0.55;
-uniform float softness : hint_range(0.1, 1.5) = 0.65;
+uniform float strength : hint_range(0.0, 1.0) = 0.32;
+uniform float softness : hint_range(0.1, 1.5) = 0.78;
 uniform vec4 tint : source_color = vec4(0.02, 0.03, 0.02, 1.0);
 void fragment() {
 	vec2 uv = UV * 2.0 - 1.0;
-	float r = length(uv * vec2(1.0, 1.05));
-	float v = smoothstep(softness, 1.35, r) * strength;
+	// Squared radius → fades only near corners/edges, never a mid-frame ring.
+	float r = length(uv * vec2(1.0, 1.08));
+	float v = smoothstep(softness, 1.55, r) * strength;
 	COLOR = vec4(tint.rgb, v);
 }
 """
@@ -154,7 +157,7 @@ static func set_dusk(nodes: Dictionary, dusk: float) -> void:
 	if not nodes.has("mood"):
 		return
 	var mood: CanvasModulate = nodes["mood"]
-	## Day → dusk: cooler magenta-amber wash for Apis.
-	var day := Color(1.05, 0.98, 0.88)
-	var eve := Color(0.85, 0.72, 0.95)
+	## Day → dusk: cooler magenta-amber wash for Apis (kept bright enough to avoid rings).
+	var day := Color(1.02, 0.99, 0.94)
+	var eve := Color(0.92, 0.82, 0.98)
 	mood.color = day.lerp(eve, clampf(dusk, 0.0, 1.0))

@@ -43,8 +43,8 @@ var last_full_nectar: float = -C.NECTAR_FULL_CD
 var big_flight: bool = false
 var big_flight_time = null
 var big_flight_t: float = 0.0
-var cam_zoom: float = 1.0
-var cam_zoom_target: float = 1.0
+var cam_zoom: float = C.CAM_ZOOM_IN
+var cam_zoom_target: float = C.CAM_ZOOM_IN
 var hive_scale: float = 1.0
 var tree_attract: bool = false
 var tree_attract_pulse: float = 0.0
@@ -905,9 +905,9 @@ func update(dt: float) -> void:
 			+ time / 900.0 * 0.35,
 			0.0, 1.0
 		)
-		var z_goal: float = lerpf(1.0, C.CAM_ZOOM_OUT, growth)
+		var z_goal: float = lerpf(C.CAM_ZOOM_IN, C.CAM_ZOOM_OUT, growth)
 		if time > 600.0:
-			z_goal = lerpf(z_goal, C.CAM_ZOOM_OUT * 0.82, clampf((time - 600.0) / 280.0, 0.0, 1.0))
+			z_goal = lerpf(z_goal, C.CAM_ZOOM_OUT * 0.9, clampf((time - 600.0) / 280.0, 0.0, 1.0))
 		if z_goal < cam_zoom_target:
 			cam_zoom_target = z_goal
 	cam_zoom += (cam_zoom_target - cam_zoom) * minf(1.0, dt / (C.CAM_ZOOM_DUR * 0.35))

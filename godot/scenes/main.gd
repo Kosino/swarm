@@ -124,12 +124,15 @@ func _ready() -> void:
 		var Bot = preload("res://tools/capture_bot.gd")
 		Bot.advance_mycelium(world, capture_at)
 		demo_on = false
+		## Snap presentational zoom for deterministic captures.
+		world.cam_zoom = world.cam_zoom_target
 	SwarmAudio.set_ambient("mycelium")
 	_atm = Atm.apply(self, "mycelium", camera, hud)
 	hud.visible = demo_on
 	camera.position = Iso.world_to_iso(_nest().x, _nest().y)
 	zoom_target = 1.0
 	camera.zoom = Vector2(zoom_target * world.cam_zoom, zoom_target * world.cam_zoom)
+	Atm.sync_light(_atm, camera.position)
 	queue_redraw()
 	if capture_at >= 0.0 and capture_out != "":
 		await get_tree().process_frame
@@ -209,7 +212,7 @@ func _process(dt: float) -> void:
 	## Soft easing — no hard snaps at growth thresholds.
 	camera.zoom = camera.zoom.lerp(Vector2(z, z), 1.0 - exp(-dt * 1.55))
 	var nest_iso := Iso.world_to_iso(_nest().x, _nest().y)
-	var glow_e: float = 0.55 + world.network_bright * 0.55 + world.network_pulse * 0.35
+	var glow_e: float = 0.38 + world.network_bright * 0.28 + world.network_pulse * 0.2
 	Atm.sync_light(_atm, nest_iso, glow_e)
 	if _atm.has("dust"):
 		(_atm["dust"] as Node2D).global_position = nest_iso
@@ -380,11 +383,11 @@ func _tile_sc() -> float:
 
 
 func _draw_ground_base() -> void:
-	## Continuous iso underlay (no grey void). pro_v3 textures mapped onto iso diamonds.
+	## Continuous iso underlay beyond camera — no grey void / hard map rectangle.
 	var c := Iso.world_to_iso(float(C.W) * 0.5, float(C.H) * 0.5)
-	var hw: float = float(C.W) * 0.95
-	var hh: float = float(C.H) * 0.62
-	draw_colored_polygon(_diamond_at(c, hw * 1.35, hh * 1.35), Color(0.08, 0.1, 0.055, 1.0))
+	var hw: float = float(C.W) * 1.55
+	var hh: float = float(C.H) * 1.05
+	draw_colored_polygon(_diamond_at(c, hw * 1.55, hh * 1.55), Color(0.08, 0.1, 0.055, 1.0))
 	var tex_key := "myc_tex_puda_hola"
 	if _visual_reach() > 220.0:
 		tex_key = "myc_tex_puda_prorostla"
@@ -392,24 +395,23 @@ func _draw_ground_base() -> void:
 		tex_key = "myc_tex_puda_zarici"
 	var tex: Texture2D = ProArt.tex(pro, tex_key)
 	if tex != null:
-		## Tile seamless fill as iso diamonds (UV-mapped), not axis-aligned blit.
-		var step_w: float = 220.0
-		var step_h: float = 110.0
-		for gy in range(-6, 7):
-			for gx in range(-8, 9):
-				var center := c + Vector2(float(gx) * step_w * 0.5 + float(gy) * step_w * 0.5, float(gy) * step_h * 0.5 - float(gx) * step_h * 0.5)
-				var pts := _diamond_at(center, step_w * 0.56, step_h * 0.56)
-				var u0 := Vector2(float(gx) * 0.55, float(gy) * 0.55)
-				var uvs := PackedVector2Array([
-					u0 + Vector2(0.5, 0.0),
-					u0 + Vector2(1.0, 0.5),
-					u0 + Vector2(0.5, 1.0),
-					u0 + Vector2(0.0, 0.5),
-				])
-				var cols := PackedColorArray([Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE])
-				draw_polygon(pts, cols, uvs, tex)
+		## Few large UV-tiled diamonds — ground beyond camera, no small-tile stripe bands.
+		var uv_s := 5.5
+		for layer in range(3):
+			var grow: float = 1.0 + float(layer) * 0.35
+			var pts := _diamond_at(c, hw * grow, hh * grow)
+			var uvs := PackedVector2Array([
+				Vector2(0.5, 0.0) * uv_s,
+				Vector2(1.0, 0.5) * uv_s,
+				Vector2(0.5, 1.0) * uv_s,
+				Vector2(0.0, 0.5) * uv_s,
+			])
+			var shade: float = lerpf(1.0, 0.8, float(layer) / 2.0)
+			var col := Color(shade, shade, shade, 1.0)
+			draw_polygon(pts, PackedColorArray([col, col, col, col]), uvs, tex)
 	else:
 		draw_colored_polygon(_diamond_at(c, hw, hh), Color(0.14, 0.18, 0.1, 1.0))
+	_draw_ground_decals()
 
 
 func _blit(name: String, world_x: float, world_y: float, scale: float = 1.0, modulate: Color = Color.WHITE) -> void:
@@ -425,7 +427,7 @@ func _blit(name: String, world_x: float, world_y: float, scale: float = 1.0, mod
 
 
 func _draw_soil() -> void:
-	## Atlas tiles = variation decals on seamless fill (Phase A textures; later soil fix overwrites same paths).
+	## Sparse atlas variation on seamless fill — avoid a hard rectangular soil patch.
 	var cols: int = world.soil_cols
 	var rows: int = world.soil_rows
 	var tile: float = float(C.SOIL_TILE)
@@ -433,6 +435,9 @@ func _draw_soil() -> void:
 	var has_fill: bool = ProArt.has(pro, "myc_tex_puda_hola")
 	for ty in range(rows):
 		for tx in range(cols):
+			## Checker subsample so soil never reads as a solid map rectangle.
+			if has_fill and ((tx + ty * 3) % 3) != 0:
+				continue
 			var wx: float = (float(tx) + 0.5) * tile
 			var wy: float = (float(ty) + 0.5) * tile
 			var idx: int = int(world.soil_tiles[ty * cols + tx]) if ty * cols + tx < world.soil_tiles.size() else 0
@@ -440,9 +445,9 @@ func _draw_soil() -> void:
 			var stage: String = _terrain_stage(wx, wy)
 			var n := "myc2_puda_%s_%s" % [stage, variant]
 			if atlas.has(n):
-				var a: float = 0.55 if has_fill else 1.0
+				var a: float = 0.28 if has_fill else 1.0
 				if stage == "ziva":
-					a = 0.72 if has_fill else 1.0
+					a = 0.42 if has_fill else 1.0
 				_blit(n, wx, wy, sc, Color(1, 1, 1, a))
 			elif not has_fill:
 				var iso := Iso.world_to_iso(wx, wy)
@@ -450,7 +455,34 @@ func _draw_soil() -> void:
 			if stage != "pusta" and atlas.has("myc2_overlay_prorust"):
 				var prox: float = 1.0 - clampf(_nest().distance_to(Vector2(wx, wy)) / maxf(_visual_reach(), 1.0), 0.0, 1.0)
 				if prox > 0.35:
-					_blit("myc2_overlay_prorust", wx, wy, sc * 0.92, Color(1, 1, 1, 0.14 + prox * 0.22))
+					_blit("myc2_overlay_prorust", wx, wy, sc * 0.92, Color(1, 1, 1, 0.1 + prox * 0.18))
+
+
+func _draw_ground_decals() -> void:
+	## Phase B soil variation — deterministic scatter, no rectangular footprint.
+	var nest := _nest()
+	var keys := [
+		"myc_decal_mech_a", "myc_decal_mech_b", "myc_decal_kamen_a", "myc_decal_kamen_b",
+		"myc_decal_listi_a", "myc_decal_listi_b", "myc_decal_koren_a", "myc_decal_koren_b",
+		"myc_decal_houbicka", "myc_decal_kvet_mech", "myc_decal_trs_mech", "myc_decal_hyfa_chomac",
+	]
+	var present: Array = []
+	for k in keys:
+		if ProArt.has(pro, k):
+			present.append(k)
+	if present.is_empty():
+		return
+	var sc: float = 0.42 if not _use_2x else 0.22
+	for i in range(48):
+		var ang: float = float(i) * 2.399963
+		var rad: float = 55.0 + fmod(float(i * 47), 380.0)
+		var wx: float = nest.x + cos(ang) * rad
+		var wy: float = nest.y + sin(ang) * rad * 0.72
+		if wx < -40.0 or wy < -40.0 or wx > float(C.W) + 40.0 or wy > float(C.H) + 40.0:
+			continue
+		var key: String = present[i % present.size()]
+		var a: float = 0.55 if i % 4 == 0 else 0.38
+		ProArt.blit(self, pro, key, Iso.world_to_iso(wx, wy), sc * (0.85 + float(i % 5) * 0.06), Color(1, 1, 1, a))
 
 
 func _diamond_at(center: Vector2, half_w: float, half_h: float) -> PackedVector2Array:
@@ -474,20 +506,18 @@ func _hyfa_dir(dx: float, dy: float) -> String:
 
 
 func _draw_hyphae() -> void:
-	## Organic network: thickness sprites + additive glow; density capped so soil shows through.
-	var bright: float = 1.0 + world.network_bright * 0.4
+	## Organic glowing filaments (fix Build-11 regression): continuous underlay + brighter sprites.
+	var bright: float = 1.0 + world.network_bright * 0.55
 	var drawn := 0
-	var max_draw := 720
+	var max_draw := 1400
 	var i := 0
 	var seg_n: int = world.segs.size()
 	for s in world.segs:
 		i += 1
 		var th: int = int(s.th)
-		## Subsample thin filaments when dense — keep early network fully visible.
+		## Light subsample only when extremely dense — keep network continuous.
 		var stride := 1
-		if seg_n > 180 and th <= 0:
-			stride = 3
-		elif seg_n > 120 and th == 1:
+		if seg_n > 900 and th <= 0:
 			stride = 2
 		if (i % stride) != 0:
 			continue
@@ -500,18 +530,21 @@ func _draw_hyphae() -> void:
 		var name := "myc2_hyfa_%s_%s" % [thn, dir]
 		var mx: float = (s.x1 + s.x2) * 0.5
 		var my: float = (s.y1 + s.y2) * 0.5
-		var alpha: float = (0.38 + 0.12 * float(mini(3, th))) * bright
-		var col := Color(1.15, 1.35, 1.1, alpha)
+		var a_iso := Iso.world_to_iso(s.x1, s.y1)
+		var b_iso := Iso.world_to_iso(s.x2, s.y2)
+		## Soft luminous underlay so filaments never read as dark bead chains.
+		var w: float = 1.4 + float(mini(3, th)) * 0.85
+		draw_line(a_iso, b_iso, Color(0.35, 0.85, 0.55, 0.22 * bright), w * 2.2, true)
+		draw_line(a_iso, b_iso, Color(1.35, 1.7, 1.15, 0.55 * bright), w, true)
+		var alpha: float = (0.72 + 0.1 * float(mini(3, th))) * bright
+		var col := Color(1.45, 1.75, 1.2, alpha)
 		if atlas.has(name):
-			var sc := 0.18 + 0.035 * float(mini(3, th))
+			var sc := 0.34 + 0.06 * float(mini(3, th))
 			if _use_2x:
 				sc *= 0.5
 			_blit(name, mx, my, sc, col)
 			drawn += 1
 		else:
-			var a := Iso.world_to_iso(s.x1, s.y1)
-			var b := Iso.world_to_iso(s.x2, s.y2)
-			draw_line(a, b, Color(0.35, 0.75, 0.5, 0.35 * bright), 0.8 + float(mini(3, th)) * 0.35, true)
 			drawn += 1
 	## Sparse branch / node accents.
 	if atlas.has("myc2_hyfa_uzel_stredni"):
@@ -519,17 +552,19 @@ func _draw_hyphae() -> void:
 		var j := 0
 		for s2 in world.segs:
 			j += 1
-			if int(s2.th) < 2 or (j % 5) != 0:
+			if int(s2.th) < 2 or (j % 4) != 0:
 				continue
 			var thn2 := _th_name(int(s2.th))
 			var uname := "myc2_hyfa_uzel_%s" % thn2
 			if atlas.has(uname):
-				_blit(uname, s2.x1, s2.y1, 0.16 if not _use_2x else 0.08, Color(1.2, 1.4, 1.15, 0.4 + world.network_bright * 0.25))
+				_blit(uname, s2.x1, s2.y1, 0.28 if not _use_2x else 0.14, Color(1.45, 1.7, 1.25, 0.65 + world.network_bright * 0.25))
 				shown += 1
-				if shown > 28:
+				if shown > 40:
 					break
 			if atlas.has("myc2_hyfa_vetveni_%s" % thn2) and shown % 3 == 0:
-				_blit("myc2_hyfa_vetveni_%s" % thn2, s2.x2, s2.y2, 0.14 if not _use_2x else 0.07, Color(1.15, 1.35, 1.1, 0.35))
+				_blit("myc2_hyfa_vetveni_%s" % thn2, s2.x2, s2.y2, 0.24 if not _use_2x else 0.12, Color(1.35, 1.6, 1.15, 0.55))
+			if ProArt.has(pro, "myc_decal_hyfa_chomac") and shown % 5 == 0:
+				ProArt.blit(self, pro, "myc_decal_hyfa_chomac", Iso.world_to_iso(s2.x1, s2.y1), 0.28 if not _use_2x else 0.14, Color(1.2, 1.4, 1.1, 0.4))
 	for t in world.tips:
 		var dir2 := _hyfa_dir(cos(t.a), sin(t.a))
 		var tip_th := "tenka"
@@ -541,9 +576,9 @@ func _draw_hyphae() -> void:
 		if not atlas.has(tip_name):
 			tip_name = "myc2_hyfa_tip"
 		if atlas.has(tip_name):
-			_blit(tip_name, t.x, t.y, 0.28 if not _use_2x else 0.14, Color(1.25, 1.45, 1.2, 0.7 * bright))
+			_blit(tip_name, t.x, t.y, 0.4 if not _use_2x else 0.2, Color(1.55, 1.8, 1.3, 0.85 * bright))
 		else:
-			draw_circle(Iso.world_to_iso(t.x, t.y), 2.0, Color(0.45, 0.9, 0.6, 0.7))
+			draw_circle(Iso.world_to_iso(t.x, t.y), 2.6, Color(0.55, 1.0, 0.7, 0.85))
 
 
 func _kotva_stage(p: Dictionary) -> String:
@@ -566,6 +601,7 @@ func _draw_entities() -> void:
 		var sc := 0.55 if p.get("big", false) else 0.4
 		if _use_2x:
 			sc *= 0.5
+		_draw_soft_shadow(p.x, p.y, 14.0 if p.get("big", false) else 9.0, 0.22 + p.lit * 0.12)
 		if atlas.has(name):
 			_blit(name, p.x, p.y, sc, Color(1, 1, 1, 0.55 + p.lit * 0.4))
 			if stage == "zariva" and atlas.has("myc2_overlay_zare"):
@@ -701,31 +737,38 @@ func _draw_fx() -> void:
 
 
 func _draw_edge_fog() -> void:
-	## Soft vignette at world rim so map edges never read as hard cutouts.
-	var c := Iso.world_to_iso(float(C.W) * 0.5, float(C.H) * 0.5)
-	var fog_col := Color(0.06, 0.08, 0.04, 0.0)
-	for i in range(4):
-		var t: float = float(i + 1) / 4.0
-		fog_col.a = 0.08 + t * 0.12
-		draw_arc(c, 380.0 + t * 90.0, 0, TAU, 64, fog_col, 28.0 + t * 18.0)
+	## Map edge handled by oversized seamless fill + soft screen vignette.
+	## Deliberately no circular/world arcs — those produced the dark-ring bug.
+	pass
+
+
+func _draw_soft_shadow(wx: float, wy: float, radius: float, alpha: float = 0.28) -> void:
+	var iso := Iso.world_to_iso(wx, wy) + Vector2(3.0, 5.0)
+	draw_colored_polygon(_diamond_at(iso, radius * 1.15, radius * 0.55), Color(0.02, 0.03, 0.02, alpha))
 
 
 func _draw_ending_planet() -> void:
 	var vp := get_viewport_rect().size
-	var p := Vector2(vp.x * 0.78, vp.y * 0.22)
+	var cam := camera.position
+	## Screen-space overlays relative to camera center.
+	if ProArt.has(pro, "orbit_bg"):
+		ProArt.blit(self, pro, "orbit_bg", cam, 0.55 / maxf(camera.zoom.x, 0.2), Color(1, 1, 1, minf(0.85, world.orbit_t * 0.2)))
+	var p := cam + Vector2(vp.x * 0.28 / maxf(camera.zoom.x, 0.2), -vp.y * 0.22 / maxf(camera.zoom.y, 0.2))
 	var tw: float = 0.4 + 0.6 * abs(sin(world.time * 2.5))
-	if ProArt.has(pro, "menu_apis"):
+	if ProArt.has(pro, "ending_planet"):
+		ProArt.blit(self, pro, "ending_planet", p, 0.12, Color(1, 1, 1, _other_planet_a * tw * 0.9))
+	elif ProArt.has(pro, "menu_apis"):
 		ProArt.blit(self, pro, "menu_apis", p, 0.08, Color(1, 1, 1, _other_planet_a * tw * 0.85))
 	else:
 		draw_circle(p, 7.0, Color(0.95, 0.75, 0.3, _other_planet_a * tw))
 		draw_arc(p, 14.0, 0, TAU, 24, Color(0.95, 0.7, 0.25, _other_planet_a * 0.45), 1.4)
 	if ProArt.has(pro, "swarm_logo"):
-		ProArt.blit(self, pro, "swarm_logo", Vector2(vp.x * 0.5, vp.y * 0.12), 0.22, Color(1, 1, 1, minf(1.0, world.orbit_t * 0.25)))
+		ProArt.blit(self, pro, "swarm_logo", cam + Vector2(0, -vp.y * 0.32 / maxf(camera.zoom.y, 0.2)), 0.22, Color(1, 1, 1, minf(1.0, world.orbit_t * 0.25)))
 	else:
 		var font: Font = STheme.title_font()
 		if font == null:
 			font = ThemeDB.fallback_font
-		draw_string(font, Vector2(vp.x * 0.5 - 48, vp.y * 0.12), "SWARM", HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Color(0.92, 0.95, 0.88, minf(1.0, world.orbit_t * 0.25)))
+		draw_string(font, cam + Vector2(-48, -vp.y * 0.32 / maxf(camera.zoom.y, 0.2)), "SWARM", HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Color(0.92, 0.95, 0.88, minf(1.0, world.orbit_t * 0.25)))
 
 
 func _draw_box_fallback(wx: float, wy: float, half: float, col: Color) -> void:
@@ -742,7 +785,13 @@ func _draw_guidance() -> void:
 		var t: Dictionary = g.target
 		var c := Iso.world_to_iso(t.x, t.y)
 		var ph: float = fmod(world.time, 1.6) / 1.6
-		if ProArt.has(pro, "reticle"):
+		var pulse_i: int = int(floor(fmod(world.time * 6.0, 6.0)))
+		var pulse_key := "reticle_myc_pulse_%02d" % pulse_i
+		if ProArt.has(pro, pulse_key):
+			ProArt.blit(self, pro, pulse_key, c, 0.4 + ph * 0.08, Color(1, 1, 1, 0.55 * (1.0 - ph * 0.5)))
+		elif ProArt.has(pro, "reticle_myc"):
+			ProArt.blit(self, pro, "reticle_myc", c, 0.38 + ph * 0.1, Color(1, 1, 1, 0.5 * (1.0 - ph)))
+		elif ProArt.has(pro, "reticle"):
 			ProArt.blit(self, pro, "reticle", c, 0.35 + ph * 0.1, Color(1, 1, 1, 0.45 * (1.0 - ph)))
 		else:
 			draw_arc(c, float(t.get("r", 16.0)) * 0.55 + ph * 8.0, 0, TAU, 32, Color(0.55, 0.9, 0.65, 0.28 * (1.0 - ph)), 1.4)
