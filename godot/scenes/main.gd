@@ -161,6 +161,8 @@ func _ready() -> void:
 	zoom_target = 1.0
 	camera.zoom = Vector2(zoom_target * world.cam_zoom, zoom_target * world.cam_zoom)
 	Atm.sync_light(_atm, camera.position)
+	Atm.sync_particles(_atm, camera.position)
+	Atm.set_myc_day(_atm, clampf(world.network_bright * 0.65 + world.network_pulse * 0.25, 0.0, 1.0))
 	_refresh_hud()
 	queue_redraw()
 	if capture_at >= 0.0 and capture_out != "":
@@ -273,8 +275,8 @@ func _process(dt: float) -> void:
 	var nest_iso := Iso.world_to_iso(_nest().x, _nest().y)
 	var glow_e: float = 0.38 + world.network_bright * 0.28 + world.network_pulse * 0.2
 	Atm.sync_light(_atm, nest_iso, glow_e)
-	if _atm.has("dust"):
-		(_atm["dust"] as Node2D).global_position = nest_iso
+	Atm.sync_particles(_atm, nest_iso)
+	Atm.set_myc_day(_atm, clampf(world.network_bright * 0.65 + world.network_pulse * 0.25, 0.0, 1.0))
 	_refresh_hud()
 	queue_redraw()
 
@@ -631,34 +633,54 @@ func _draw_soil() -> void:
 
 
 func _draw_ground_decals() -> void:
-	## Phase B soil variation — deterministic scatter, no rectangular footprint.
+	## Biome detail rings — moss/mushroom near nest, leaf/root mid, stone far. Deterministic.
 	var nest := _nest()
-	var keys := [
-		"myc_decal_mech_a", "myc_decal_mech_b", "myc_decal_kamen_a", "myc_decal_kamen_b",
-		"myc_decal_listi_a", "myc_decal_listi_b", "myc_decal_koren_a", "myc_decal_koren_b",
-		"myc_decal_houbicka", "myc_decal_kvet_mech", "myc_decal_trs_mech", "myc_decal_hyfa_chomac",
-	]
-	var present: Array = []
-	for k in keys:
+	var near_keys := ["myc_decal_houbicka", "myc_decal_kvet_mech", "myc_decal_trs_mech", "myc_decal_hyfa_chomac", "myc_decal_mech_a", "myc_decal_mech_b"]
+	var mid_keys := ["myc_decal_listi_a", "myc_decal_listi_b", "myc_decal_koren_a", "myc_decal_koren_b", "myc_decal_mech_a", "myc_decal_trs_mech"]
+	var far_keys := ["myc_decal_kamen_a", "myc_decal_kamen_b", "myc_decal_koren_a", "myc_decal_listi_b", "myc_decal_mech_b"]
+	var near_p: Array = []
+	var mid_p: Array = []
+	var far_p: Array = []
+	for k in near_keys:
 		if ProArt.has(pro, k):
-			present.append(k)
-	if present.is_empty():
+			near_p.append(k)
+	for k in mid_keys:
+		if ProArt.has(pro, k):
+			mid_p.append(k)
+	for k in far_keys:
+		if ProArt.has(pro, k):
+			far_p.append(k)
+	if near_p.is_empty() and mid_p.is_empty() and far_p.is_empty():
 		return
-	var sc: float = 0.42 if not _use_2x else 0.22
-	var decal_n: int = SwarmGfx.decal_count()
+	var sc: float = 0.44 if not _use_2x else 0.23
+	var decal_n: int = SwarmGfx.decal_count() + SwarmGfx.detail_decal_count()
 	for i in range(decal_n):
-		var ang: float = float(i) * 2.399963
-		var rad: float = 55.0 + fmod(float(i * 47), 380.0)
-		var wx: float = nest.x + cos(ang) * rad
-		var wy: float = nest.y + sin(ang) * rad * 0.72
+		var ang: float = float(i) * 2.399963 + float(i % 7) * 0.11
+		var rad: float = 42.0 + fmod(float(i * 47), 420.0)
+		var wx: float = nest.x + cos(ang) * rad + sin(float(i) * 1.7) * 8.0
+		var wy: float = nest.y + sin(ang) * rad * 0.72 + cos(float(i) * 1.3) * 6.0
 		if wx < -40.0 or wy < -40.0 or wx > float(C.W) + 40.0 or wy > float(C.H) + 40.0:
 			continue
 		var iso_d := Iso.world_to_iso(wx, wy)
 		if not SwarmGfx.iso_in_view(iso_d, _view):
 			continue
-		var key: String = present[i % present.size()]
-		var a: float = 0.55 if i % 4 == 0 else 0.38
-		ProArt.blit(self, pro, key, iso_d, sc * (0.85 + float(i % 5) * 0.06), Color(1, 1, 1, a))
+		var pool: Array = mid_p
+		if rad < 140.0 and not near_p.is_empty():
+			pool = near_p
+		elif rad > 280.0 and not far_p.is_empty():
+			pool = far_p
+		elif pool.is_empty():
+			pool = near_p if not near_p.is_empty() else far_p
+		if pool.is_empty():
+			continue
+		var key: String = pool[i % pool.size()]
+		var a: float = 0.62 if i % 5 == 0 else (0.48 if i % 3 == 0 else 0.34)
+		var local_sc: float = sc * (0.78 + float(i % 6) * 0.07)
+		## Tiny mushrooms read better slightly larger near the nest.
+		if key == "myc_decal_houbicka" or key == "myc_decal_kvet_mech":
+			local_sc *= 1.12
+			a = minf(0.72, a + 0.08)
+		ProArt.blit(self, pro, key, iso_d, local_sc, Color(1, 1, 1, a))
 
 
 func _diamond_at(center: Vector2, half_w: float, half_h: float) -> PackedVector2Array:

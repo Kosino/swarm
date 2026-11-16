@@ -1,6 +1,6 @@
 extends RefCounted
 class_name SwarmAtmosphere
-## Shared Build-12 atmosphere: clear color, glow env, canvas mood, soft core light, dust, vignette.
+## Shared atmosphere: clear color, glow, mood, core light, pollen/spore motes, soft vignette + day tint.
 ## No circular world-space fog arcs (those read as a dark ring).
 
 const STheme = preload("res://ui/swarm_theme.gd")
@@ -30,9 +30,9 @@ static func apply(host: Node2D, rod: String, camera: Camera2D, hud: CanvasLayer)
 	var mood := CanvasModulate.new()
 	mood.name = "Mood"
 	if rod == "apis":
-		mood.color = Color(1.02, 0.99, 0.94)
+		mood.color = Color(1.04, 1.0, 0.93)
 	else:
-		mood.color = Color(0.96, 1.0, 0.97)
+		mood.color = Color(0.97, 1.02, 0.98)
 	host.add_child(mood)
 	nodes["mood"] = mood
 
@@ -61,26 +61,72 @@ static func apply(host: Node2D, rod: String, camera: Camera2D, hud: CanvasLayer)
 	host.add_child(fog)
 	nodes["fog"] = fog
 
-	var dust := CPUParticles2D.new()
-	dust.name = "AmbientDust"
-	dust.amount = SwarmGfx.dust_amount()
-	dust.lifetime = 7.0
-	dust.preprocess = 3.0 if SwarmGfx.q_level() == 0 else 1.0
-	dust.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
-	dust.emission_rect_extents = Vector2(520, 320)
-	dust.direction = Vector2(0.15, -0.35)
-	dust.spread = 50.0
-	dust.gravity = Vector2(0, -4)
-	dust.initial_velocity_min = 6.0
-	dust.initial_velocity_max = 18.0
-	dust.scale_amount_min = 0.6
-	dust.scale_amount_max = 1.8
+	## Fine ambient haze.
+	var dust := _make_particles(
+		"AmbientDust",
+		SwarmGfx.dust_amount(),
+		7.0,
+		Vector2(520, 320),
+		Vector2(0.12, -0.32),
+		50.0,
+		Vector2(0, -3.5),
+		4.0,
+		14.0,
+		0.45,
+		1.35
+	)
 	if rod == "apis":
-		dust.color = Color(1.0, 0.85, 0.45, 0.35)
+		dust.color = Color(1.0, 0.88, 0.55, 0.28)
 	else:
-		dust.color = Color(0.55, 0.95, 0.7, 0.3)
+		dust.color = Color(0.62, 0.96, 0.74, 0.26)
 	host.add_child(dust)
 	nodes["dust"] = dust
+
+	## Larger pollen (Apis) / spore (Mycelium) motes — distinct from fine dust.
+	var motes := _make_particles(
+		"AmbientMotes",
+		SwarmGfx.mote_amount(),
+		9.5,
+		Vector2(480, 300),
+		Vector2(0.28, -0.18) if rod == "apis" else Vector2(0.08, -0.42),
+		62.0 if rod == "apis" else 48.0,
+		Vector2(0, -2.0) if rod == "apis" else Vector2(0, -6.0),
+		5.0,
+		16.0,
+		0.9,
+		2.4
+	)
+	motes.z_index = 35
+	if rod == "apis":
+		motes.color = Color(1.0, 0.82, 0.42, 0.42)
+	else:
+		motes.color = Color(0.72, 0.98, 0.62, 0.38)
+	host.add_child(motes)
+	nodes["motes"] = motes
+
+	## Soft day-light wash (screen space) — warm meadow / cool canopy.
+	var day_layer := CanvasLayer.new()
+	day_layer.name = "DayTint"
+	day_layer.layer = 48
+	var day_rect := ColorRect.new()
+	day_rect.name = "DayTintRect"
+	day_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	day_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var day_sh := Shader.new()
+	day_sh.code = _day_tint_code()
+	var day_mat := ShaderMaterial.new()
+	day_mat.shader = day_sh
+	if rod == "apis":
+		day_mat.set_shader_parameter("tint", Color(1.0, 0.9, 0.62, 1.0))
+		day_mat.set_shader_parameter("strength", 0.11)
+	else:
+		day_mat.set_shader_parameter("tint", Color(0.72, 0.95, 0.78, 1.0))
+		day_mat.set_shader_parameter("strength", 0.09)
+	day_rect.material = day_mat
+	day_layer.add_child(day_rect)
+	host.add_child(day_layer)
+	nodes["day_tint"] = day_layer
+	nodes["day_mat"] = day_mat
 
 	## Soft screen-edge vignette only (no circular world ring).
 	var vig_layer := CanvasLayer.new()
@@ -94,13 +140,14 @@ static func apply(host: Node2D, rod: String, camera: Camera2D, hud: CanvasLayer)
 	sh.code = _vignette_code()
 	var mat := ShaderMaterial.new()
 	mat.shader = sh
-	mat.set_shader_parameter("strength", 0.32)
-	mat.set_shader_parameter("softness", 0.78)
-	mat.set_shader_parameter("tint", clear)
+	mat.set_shader_parameter("strength", 0.38)
+	mat.set_shader_parameter("softness", 0.72)
+	mat.set_shader_parameter("tint", clear.darkened(0.15))
 	rect.material = mat
 	vig_layer.add_child(rect)
 	host.add_child(vig_layer)
 	nodes["vignette"] = vig_layer
+	nodes["vig_mat"] = mat
 
 	## Theme on HUD controls (CanvasLayer itself has no theme property).
 	if hud:
@@ -125,21 +172,68 @@ static func apply(host: Node2D, rod: String, camera: Camera2D, hud: CanvasLayer)
 	if camera:
 		camera.position_smoothing_enabled = true
 		camera.position_smoothing_speed = 4.5
+	nodes["rod"] = rod
 	return nodes
+
+
+static func _make_particles(
+	pname: String,
+	amount: int,
+	lifetime: float,
+	extents: Vector2,
+	direction: Vector2,
+	spread: float,
+	gravity: Vector2,
+	vmin: float,
+	vmax: float,
+	smin: float,
+	smax: float
+) -> CPUParticles2D:
+	var p := CPUParticles2D.new()
+	p.name = pname
+	p.amount = maxi(amount, 1)
+	p.lifetime = lifetime
+	p.preprocess = 3.0 if SwarmGfx.q_level() == 0 else 1.0
+	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+	p.emission_rect_extents = extents
+	p.direction = direction
+	p.spread = spread
+	p.gravity = gravity
+	p.initial_velocity_min = vmin
+	p.initial_velocity_max = vmax
+	p.scale_amount_min = smin
+	p.scale_amount_max = smax
+	p.explosiveness = 0.0
+	p.randomness = 0.55
+	return p
 
 
 static func _vignette_code() -> String:
 	return """
 shader_type canvas_item;
-uniform float strength : hint_range(0.0, 1.0) = 0.32;
-uniform float softness : hint_range(0.1, 1.5) = 0.78;
+uniform float strength : hint_range(0.0, 1.0) = 0.38;
+uniform float softness : hint_range(0.1, 1.5) = 0.72;
 uniform vec4 tint : source_color = vec4(0.02, 0.03, 0.02, 1.0);
 void fragment() {
 	vec2 uv = UV * 2.0 - 1.0;
 	// Squared radius → fades only near corners/edges, never a mid-frame ring.
 	float r = length(uv * vec2(1.0, 1.08));
-	float v = smoothstep(softness, 1.55, r) * strength;
+	float v = smoothstep(softness, 1.58, r) * strength;
 	COLOR = vec4(tint.rgb, v);
+}
+"""
+
+
+static func _day_tint_code() -> String:
+	return """
+shader_type canvas_item;
+uniform float strength : hint_range(0.0, 0.4) = 0.1;
+uniform vec4 tint : source_color = vec4(1.0, 0.92, 0.7, 1.0);
+void fragment() {
+	// Soft multiply wash — stronger at top (sky lean), never a hard band.
+	float sky = smoothstep(1.0, 0.15, UV.y);
+	float a = strength * (0.55 + 0.45 * sky);
+	COLOR = vec4(tint.rgb, a);
 }
 """
 
@@ -153,14 +247,46 @@ static func sync_light(nodes: Dictionary, world_iso: Vector2, energy: float = -1
 		light.energy = energy
 
 
+static func sync_particles(nodes: Dictionary, world_iso: Vector2) -> void:
+	if nodes.has("dust"):
+		(nodes["dust"] as Node2D).global_position = world_iso
+	if nodes.has("motes"):
+		(nodes["motes"] as Node2D).global_position = world_iso
+
+
 static func set_dusk(nodes: Dictionary, dusk: float) -> void:
 	if not nodes.has("mood"):
 		return
 	var mood: CanvasModulate = nodes["mood"]
 	## Day → dusk: warmer amber-magenta wash — readable at 11:00 captures.
-	var day := Color(1.02, 0.99, 0.94)
+	var day := Color(1.04, 1.0, 0.93)
 	var eve := Color(0.88, 0.72, 0.95)
-	mood.color = day.lerp(eve, clampf(dusk, 0.0, 1.0))
-	if nodes.has("dust") and dusk > 0.15:
+	var d: float = clampf(dusk, 0.0, 1.0)
+	mood.color = day.lerp(eve, d)
+	if nodes.has("day_mat"):
+		var dm: ShaderMaterial = nodes["day_mat"]
+		## Day wash fades as dusk takes over.
+		dm.set_shader_parameter("strength", lerpf(0.12, 0.04, d))
+		dm.set_shader_parameter("tint", Color(1.0, 0.9, 0.62, 1.0).lerp(Color(0.92, 0.7, 0.95, 1.0), d))
+	if nodes.has("dust") and d > 0.15:
 		var dust: CPUParticles2D = nodes["dust"]
-		dust.color = Color(1.0, 0.78, 0.55, 0.28 + dusk * 0.2)
+		dust.color = Color(1.0, 0.78, 0.55, 0.26 + d * 0.18)
+	if nodes.has("motes") and d > 0.1:
+		var motes: CPUParticles2D = nodes["motes"]
+		motes.color = Color(1.0, 0.72, 0.48, 0.34 + d * 0.12)
+
+
+static func set_myc_day(nodes: Dictionary, life: float) -> void:
+	## Mycelium day wash — olive → living lime as network brightens (presentation only).
+	if not nodes.has("mood"):
+		return
+	var u: float = clampf(life, 0.0, 1.0)
+	var mood: CanvasModulate = nodes["mood"]
+	mood.color = Color(0.97, 1.02, 0.98).lerp(Color(0.94, 1.05, 0.96), u * 0.55)
+	if nodes.has("day_mat"):
+		var dm: ShaderMaterial = nodes["day_mat"]
+		dm.set_shader_parameter("strength", lerpf(0.08, 0.13, u))
+		dm.set_shader_parameter("tint", Color(0.72, 0.95, 0.78, 1.0).lerp(Color(0.78, 1.0, 0.7, 1.0), u))
+	if nodes.has("motes"):
+		var motes: CPUParticles2D = nodes["motes"]
+		motes.color = Color(0.68, 0.96, 0.6, 0.34 + u * 0.12)
