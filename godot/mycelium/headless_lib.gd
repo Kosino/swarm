@@ -156,6 +156,9 @@ func _run_playthrough(seed_num: int) -> Dictionary:
 				phase = "join"
 			elif m.hintTime == null and m.joinTime != null:
 				phase = "wait_hint"
+			## Mid-game mite purge (GDD Invaze roztočů) before Age-3 quarantine.
+			elif m.miteTime != null and not bool(m.get("mitePurged", false)) and m.quarantineTime == null and m.time >= 640.0:
+				phase = "enc_mites"
 			elif m.quarantineTime == null and m.hintTime != null and m.time >= 662.0:
 				phase = "enc_quarantine"
 			elif m.skeletonTime == null and m.quarantineTime != null and m.time >= 737.0:
@@ -273,6 +276,11 @@ func _run_playthrough(seed_num: int) -> Dictionary:
 					world.pointer_up()
 				_encircle_stroke(world, g.x, g.y, 55.0, 20)
 				encircle_cd = 2.0
+		elif phase == "enc_mites" and encircle_cd <= 0.0:
+			var nest = snap.get("miteNest")
+			if nest != null:
+				_encircle_stroke(world, nest.x, nest.y, float(nest.r) * 1.35, 24)
+				encircle_cd = 2.2
 		elif phase == "enc_quarantine" and encircle_cd <= 0.0:
 			var inf = snap.get("infected")
 			if inf != null:
@@ -305,7 +313,8 @@ func _run_playthrough(seed_num: int) -> Dictionary:
 			world.pointer_up()
 
 		world.update(dt)
-		# Fast-forward quiet time-gated stretches between midgame / Age 3 wows.
+		# Fast-forward quiet time-gated stretches between midgame / Age 3 wows
+		# (pause at mite / purge windows so headless can encircle).
 		if phase in ["idle", "wait_hint", "wait_seeds", "wait_mvp"] and m.bigAnchored:
 			var jump := 0.0
 			if m.decayTime == null and m.time < 338.0:
@@ -318,6 +327,10 @@ func _run_playthrough(seed_num: int) -> Dictionary:
 				jump = minf(550.0 - m.time, 3.0)
 			elif m.hintTime == null and m.joinTime != null and m.time < 593.0:
 				jump = minf(593.0 - m.time, 3.0)
+			elif m.hintTime != null and m.miteTime == null and m.time < 623.0:
+				jump = minf(623.0 - m.time, 4.0)
+			elif m.miteTime != null and not bool(m.get("mitePurged", false)) and m.quarantineTime == null and m.time < 638.0:
+				jump = minf(638.0 - m.time, 4.0)
 			elif m.quarantineTime == null and m.hintTime != null and m.time < 660.0:
 				jump = minf(660.0 - m.time, 4.0)
 			elif m.skeletonTime == null and m.quarantineTime != null and m.time < 735.0:
