@@ -108,6 +108,39 @@ func play_chime() -> void:
 	_play_tone(520.0, 0.35, 0.06, "sine", 1400.0, false)
 
 
+func play_ui(kind: String) -> void:
+	## Menu / HUD clicks and hovers — short and quiet.
+	if effective() <= 0.001:
+		return
+	match kind:
+		"hover":
+			_play_tone(440.0, 0.06, 0.028, "sine", 1600.0, false)
+		"click":
+			_play_tone(280.0, 0.09, 0.05, "triangle", 900.0, true)
+		"tick":
+			_play_tone(620.0, 0.05, 0.03, "sine", 1800.0, false)
+		_:
+			_play_tone(320.0, 0.08, 0.04, "sine", 1000.0, true)
+
+
+func play_place(soft: bool = false) -> void:
+	## Build / seed placement pop.
+	if effective() <= 0.001:
+		return
+	if soft:
+		_play_tone(160.0, 0.22, 0.07, "sine", 520.0, true)
+	else:
+		_play_tone(132.0, 0.26, 0.1, "sine", 480.0, true)
+		_play_tone(210.0, 0.18, 0.04, "triangle", 700.0, true)
+
+
+func play_pulse(big: bool = false) -> void:
+	## Network / hive pulse thump.
+	if effective() <= 0.001:
+		return
+	play_dum(big, not big)
+
+
 func play_soft(kind: String) -> void:
 	if effective() <= 0.001:
 		return
@@ -207,45 +240,49 @@ func _synth(
 
 
 func _make_ambient(rod: String) -> AudioStreamWAV:
+	## Mycelium = wet/earthy hum + drip; Apis = meadow wing-buzz; menu = soft blend.
 	var hz := 22050
-	var secs := 3.0
+	var secs := 4.0
 	var n: int = int(secs * hz)
 	var data := PackedByteArray()
 	data.resize(n * 2)
-	var base: float = 72.0
-	var hum2: float = 108.0
-	if rod == "apis":
-		base = 96.0
-		hum2 = 180.0
-	elif rod == "menu":
-		base = 84.0
-		hum2 = 140.0
 	var rng := RandomNumberGenerator.new()
-	rng.seed = 42 if rod != "apis" else 77
+	rng.seed = 42 if rod == "mycelium" else (77 if rod == "apis" else 19)
 	for i in range(n):
 		var t: float = float(i) / float(hz)
 		var s: float = 0.0
 		if rod == "apis":
-			s = 0.22 * sin(TAU * base * t)
-			s += 0.12 * sin(TAU * hum2 * t + 0.4)
-			s += 0.04 * sin(TAU * (hum2 * 1.5) * t)
-			## Soft wing shimmer.
-			s *= 0.85 + 0.15 * sin(TAU * 4.5 * t)
+			## Meadow buzz — mid drone + wing AM + soft cricket tick.
+			s = 0.2 * sin(TAU * 98.0 * t)
+			s += 0.14 * sin(TAU * 186.0 * t + 0.35)
+			s += 0.06 * sin(TAU * 274.0 * t)
+			var wing: float = 0.78 + 0.22 * sin(TAU * 18.0 * t) * sin(TAU * 5.2 * t)
+			s *= wing
+			var chirp: float = fmod(t * 1.35 + 0.2, 1.0)
+			if chirp < 0.028:
+				s += 0.09 * sin(TAU * 880.0 * t) * (1.0 - chirp / 0.028)
 		elif rod == "mycelium":
-			s = 0.2 * sin(TAU * base * t)
-			s += 0.1 * sin(TAU * (base * 0.5) * t)
-			## Occasional drip tick.
-			var drip: float = fmod(t * 0.7 + 0.15, 1.0)
-			if drip < 0.035:
-				s += 0.18 * sin(TAU * 420.0 * t) * (1.0 - drip / 0.035)
+			## Wet earthy hum — sub drone, soil murmur, occasional drip.
+			s = 0.22 * sin(TAU * 58.0 * t)
+			s += 0.12 * sin(TAU * 87.0 * t + 0.6)
+			s += 0.08 * sin(TAU * 29.0 * t)
+			s += 0.04 * sin(TAU * 116.0 * t) * (0.5 + 0.5 * sin(TAU * 0.35 * t))
+			## Soft broadband soil hush.
+			s += (rng.randf() - 0.5) * 0.045
+			var drip: float = fmod(t * 0.55 + 0.12, 1.0)
+			if drip < 0.04:
+				var denv: float = 1.0 - drip / 0.04
+				s += 0.16 * sin(TAU * 380.0 * t) * denv * denv
+				s += 0.05 * sin(TAU * 620.0 * t) * denv
 		else:
-			s = 0.14 * sin(TAU * base * t) + 0.1 * sin(TAU * hum2 * t)
-			s += 0.05 * sin(TAU * 52.0 * t)
-		s += (rng.randf() - 0.5) * 0.02
+			s = 0.13 * sin(TAU * 78.0 * t) + 0.1 * sin(TAU * 132.0 * t)
+			s += 0.05 * sin(TAU * 48.0 * t)
+			s += 0.03 * sin(TAU * 196.0 * t) * (0.6 + 0.4 * sin(TAU * 0.7 * t))
+		s += (rng.randf() - 0.5) * 0.015
 		## Loop-friendly fade edges.
 		var edge: float = minf(t, secs - t)
-		var gate: float = clampf(edge / 0.08, 0.0, 1.0)
-		var sample: int = int(clampf(s * 0.35 * gate, -1.0, 1.0) * 28000.0)
+		var gate: float = clampf(edge / 0.1, 0.0, 1.0)
+		var sample: int = int(clampf(s * 0.34 * gate, -1.0, 1.0) * 28000.0)
 		data[i * 2] = sample & 0xFF
 		data[i * 2 + 1] = (sample >> 8) & 0xFF
 	var stream := AudioStreamWAV.new()

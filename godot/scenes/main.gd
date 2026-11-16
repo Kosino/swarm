@@ -7,6 +7,7 @@ const Atlas = preload("res://mycelium/iso_atlas.gd")
 const Atm = preload("res://ui/atmosphere.gd")
 const ProArt = preload("res://ui/pro_art.gd")
 const STheme = preload("res://ui/swarm_theme.gd")
+const Juice = preload("res://ui/juice.gd")
 
 @onready var camera: Camera2D = $Camera2D
 @onready var world_root: Node2D = $WorldRoot
@@ -42,8 +43,13 @@ var _other_planet_a: float = 0.0
 var _autosave_cd: float = 60.0
 var _run_seed: int = 42
 var _fx: Array = [] ## {seq, x, y, t, life}
+var _juice: Array = [] ## placement pop / ripple / float text
 var _prev_pulse: float = 0.0
 var _prev_bright: float = 0.0
+var _prev_anchors: int = 0
+var _prev_workers: int = 0
+var _had_seed: bool = false
+var _seen_rings: int = 0
 
 
 func _resolve_rod() -> String:
@@ -129,6 +135,10 @@ func _ready() -> void:
 	SwarmAudio.set_ambient("mycelium")
 	_atm = Atm.apply(self, "mycelium", camera, hud)
 	hud.visible = demo_on
+	_had_seed = world.seed != null
+	_prev_anchors = _count_anchors()
+	_prev_workers = world.workers.size()
+	_seen_rings = world.rings.size()
 	camera.position = Iso.world_to_iso(_nest().x, _nest().y)
 	zoom_target = 1.0
 	camera.zoom = Vector2(zoom_target * world.cam_zoom, zoom_target * world.cam_zoom)
@@ -343,6 +353,14 @@ func _th_name(th: int) -> String:
 	return "silna"
 
 
+func _count_anchors() -> int:
+	var n: int = 0
+	for p in world.patches:
+		if p.on:
+			n += 1
+	return n
+
+
 func _spawn_fx(seq: String, x: float, y: float, life: float = 1.0) -> void:
 	if not sequences.has(seq):
 		return
@@ -350,16 +368,46 @@ func _spawn_fx(seq: String, x: float, y: float, life: float = 1.0) -> void:
 
 
 func _tick_fx(dt: float) -> void:
-	## Rising pulse / wow → kapka + spóra bursts.
+	## Rising pulse / wow → kapka + spóra bursts + ripple juice.
 	if world.network_pulse > _prev_pulse + 0.35:
 		var nest := _nest()
 		_spawn_fx("myc2_fx_kapka", nest.x, nest.y, 1.0)
 		_spawn_fx("myc2_fx_spora", nest.x + 12.0, nest.y - 8.0, 1.15)
+		Juice.spawn_ripple(_juice, nest.x, nest.y, true, Color(0.55, 0.92, 0.7, 0.75))
 	if world.network_bright > _prev_bright + 0.45:
 		for p in world.patches:
 			if p.on and (p.lit > 0.55 or p.get("big", false)):
 				_spawn_fx("myc2_fx_spora", p.x, p.y, 1.2)
 				break
+	## Seed placement pop (covers resume/catch-up silence via _had_seed).
+	if world.seed != null and not _had_seed:
+		_had_seed = true
+		Juice.spawn_pop(_juice, world.seed.x, world.seed.y, Color(0.65, 0.95, 0.72, 0.95))
+		Juice.spawn_ripple(_juice, world.seed.x, world.seed.y, false, Color(0.5, 0.85, 0.65, 0.65))
+	elif world.seed != null:
+		_had_seed = true
+	## New world rings → subtle ripples (world already owns timing).
+	if world.rings.size() > _seen_rings:
+		for ri in range(_seen_rings, world.rings.size()):
+			var rg: Dictionary = world.rings[ri]
+			Juice.spawn_ripple(_juice, float(rg.x), float(rg.y), bool(rg.get("big", false)), Color(0.5, 0.88, 0.68, 0.55))
+	_seen_rings = world.rings.size()
+	## Resource ticks — anchors / workers floating +N.
+	var anchors: int = _count_anchors()
+	if anchors > _prev_anchors:
+		var ax: float = _nest().x
+		var ay: float = _nest().y
+		for p2 in world.patches:
+			if p2.on:
+				ax = float(p2.x)
+				ay = float(p2.y)
+		Juice.spawn_float(_juice, ax, ay, "+anchor", Color(0.75, 0.95, 0.7, 0.95))
+		Juice.spawn_pop(_juice, ax, ay, Color(0.7, 0.95, 0.72, 0.8), 0.35)
+	_prev_anchors = anchors
+	var workers: int = world.workers.size()
+	if workers > _prev_workers:
+		Juice.spawn_float(_juice, _nest().x, _nest().y - 10.0, "+%d" % (workers - _prev_workers), Color(0.85, 0.95, 0.78, 0.9))
+	_prev_workers = workers
 	_prev_pulse = world.network_pulse
 	_prev_bright = world.network_bright
 	var i := _fx.size() - 1
@@ -368,6 +416,7 @@ func _tick_fx(dt: float) -> void:
 		if _fx[i].t >= _fx[i].life:
 			_fx.remove_at(i)
 		i -= 1
+	Juice.tick(_juice, dt)
 
 
 func _draw() -> void:
@@ -378,6 +427,7 @@ func _draw() -> void:
 	_draw_hyphae()
 	_draw_entities()
 	_draw_fx()
+	_draw_juice()
 	_draw_edge_fog()
 	_draw_guidance()
 
@@ -872,6 +922,10 @@ func _draw_fx() -> void:
 		var frame: String = str(frames[idx])
 		var alpha: float = 0.85 * (1.0 - fx.t / maxf(fx.life, 0.01))
 		_blit(frame, fx.x, fx.y, sc, Color(1.55, 1.55, 1.4, alpha))
+
+
+func _draw_juice() -> void:
+	Juice.draw_all(self, _juice, func(x: float, y: float) -> Vector2: return Iso.world_to_iso(x, y), STheme.body_font())
 
 
 func _draw_edge_fog() -> void:

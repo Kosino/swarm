@@ -415,6 +415,7 @@ func _try_build(q: int, r: int) -> bool:
 		planted = true
 		core = {"x": cx, "y": cy}
 		_sfx_dum(false)
+		SwarmSfx.play_place(false)
 		var best: Vector2i = RING[0]
 		var bd := INF
 		for cell in RING:
@@ -447,6 +448,7 @@ func _try_build(q: int, r: int) -> bool:
 	}
 	wax = maxf(0.0, wax - C.WAX_COST)
 	_sfx_soft("gesture")
+	SwarmSfx.play_place(true)
 	return true
 
 
