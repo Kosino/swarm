@@ -1,7 +1,7 @@
 extends RefCounted
 class_name SwarmDiegetic
 ## Branded diegetic HUD: first-90s hint panel, object tooltips, ending stats.
-## All chrome uses SwarmTheme 9-slice — no default Godot StyleBoxFlat panels.
+## Outer chrome = pro_v3 9-slice border only; inner fill is smooth dark for readable text.
 
 const STheme = preload("res://ui/swarm_theme.gd")
 const ApisC = preload("res://apis/config.gd")
@@ -10,15 +10,19 @@ const HINT_UNTIL := 90.0
 ## Presentational hold so ending stats are readable (does not affect sim medians).
 const ORBIT_HOLD := 9.0
 
+const PANEL_TEX := "res://art/pro_v3/ui/panel_9slice.png"
+const COL_FILL := Color(0.106, 0.071, 0.043, 0.95) ## #1b120b @ ~95%
+const COL_FILL_TOP := Color(0.14, 0.09, 0.055, 0.96)
+const COL_TITLE := Color(0.949, 0.769, 0.420, 1.0) ## #f2c46b
+const COL_BODY := Color(0.953, 0.906, 0.812, 1.0) ## #f3e7cf
+const COL_OUTLINE := Color(0.04, 0.02, 0.01, 0.92)
+const PAD := 12.0
+
 
 static func mount(hud: CanvasLayer, rod: String) -> Dictionary:
-	var theme: Theme = STheme.build(rod)
 	var out := {}
-
-	## Sit above world + vignette so hints/tooltips/ending stay readable.
 	hud.layer = 60
 
-	## Debug panel stays F1-only; diegetic layer is always on.
 	var debug: Control = hud.get_node_or_null("Panel") as Control
 	if debug:
 		debug.visible = false
@@ -31,149 +35,223 @@ static func mount(hud: CanvasLayer, rod: String) -> Dictionary:
 	hud.add_child(layer)
 	out["layer"] = layer
 
+	var tf := STheme.title_font()
+	var bf := STheme.body_font()
+
 	## --- Hint (bottom center, first 90s) ---
-	var hint := PanelContainer.new()
-	hint.name = "HintPanel"
-	hint.theme = theme
-	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## Slim chrome: short panels can't fit full 102/74 margins (border would fill the plate).
+	var hint := _make_framed_panel("HintPanel", "slim")
 	hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	hint.anchor_left = 0.5
 	hint.anchor_right = 0.5
 	hint.anchor_top = 1.0
 	hint.anchor_bottom = 1.0
-	hint.offset_left = -220.0
-	hint.offset_right = 220.0
-	hint.offset_top = -110.0
-	hint.offset_bottom = -18.0
+	hint.offset_left = -260.0
+	hint.offset_right = 260.0
+	hint.offset_top = -150.0
+	hint.offset_bottom = -14.0
 	hint.visible = false
 	layer.add_child(hint)
 	out["hint"] = hint
 
-	var hint_box := VBoxContainer.new()
-	hint_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hint.add_child(hint_box)
-
-	var hint_title := Label.new()
-	hint_title.name = "HintTitle"
+	var hint_inner: VBoxContainer = hint.get_node("Fill/Pad/Box")
+	hint_inner.alignment = BoxContainer.ALIGNMENT_CENTER
+	var hint_title := _make_label("HintTitle", "Nápověda", tf, 20, COL_TITLE, true)
 	hint_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint_title.text = "Nápověda"
-	var tf := STheme.title_font()
-	if tf:
-		hint_title.add_theme_font_override("font", tf)
-	hint_title.add_theme_font_size_override("font_size", 13)
-	hint_title.add_theme_color_override("font_color", Color(0.78, 0.82, 0.7, 0.75) if rod != "apis" else Color(0.9, 0.82, 0.62, 0.75))
-	hint_box.add_child(hint_title)
+	hint_inner.add_child(hint_title)
 	out["hint_title"] = hint_title
-
-	var hint_label := Label.new()
-	hint_label.name = "HintLabel"
+	var hint_label := _make_label("HintLabel", "", bf, 16, COL_BODY, false)
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var bf := STheme.body_font()
-	if bf:
-		hint_label.add_theme_font_override("font", bf)
-	hint_label.add_theme_font_size_override("font_size", 17)
-	hint_label.add_theme_color_override("font_color", Color(0.92, 0.95, 0.88, 0.98) if rod != "apis" else Color(0.97, 0.93, 0.82, 0.98))
-	hint_box.add_child(hint_label)
+	hint_inner.add_child(hint_label)
 	out["hint_label"] = hint_label
 
-	## Hide legacy bare Guide if present (replaced by HintPanel).
 	var legacy := hud.get_node_or_null("Diegetic")
 	if legacy:
 		legacy.visible = false
 
-	## --- Tooltip (follows cursor / object) ---
-	var tip := PanelContainer.new()
-	tip.name = "TooltipPanel"
-	tip.theme = theme
-	tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## --- Tooltip (auto-sizes to text) ---
+	var tip := _make_framed_panel("TooltipPanel", "slim")
 	tip.visible = false
 	tip.z_index = 20
+	## Grow from top-left; size follows content.
+	tip.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	tip.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	layer.add_child(tip)
 	out["tooltip"] = tip
 
-	var tip_box := VBoxContainer.new()
-	tip_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tip.add_child(tip_box)
-
-	var tip_title := Label.new()
-	tip_title.name = "TipTitle"
-	if tf:
-		tip_title.add_theme_font_override("font", tf)
-	tip_title.add_theme_font_size_override("font_size", 15)
-	tip_title.add_theme_color_override("font_color", Color(0.95, 0.96, 0.9, 1.0))
-	tip_box.add_child(tip_title)
+	var tip_inner: VBoxContainer = tip.get_node("Fill/Pad/Box")
+	tip_inner.add_theme_constant_override("separation", 4)
+	var tip_title := _make_label("TipTitle", "", tf, 20, COL_TITLE, true)
+	tip_inner.add_child(tip_title)
 	out["tip_title"] = tip_title
-
-	var tip_body := Label.new()
-	tip_body.name = "TipBody"
+	var tip_body := _make_label("TipBody", "", bf, 15, COL_BODY, false)
 	tip_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	tip_body.custom_minimum_size = Vector2(220, 0)
-	if bf:
-		tip_body.add_theme_font_override("font", bf)
-	tip_body.add_theme_font_size_override("font_size", 13)
-	tip_body.add_theme_color_override("font_color", Color(0.82, 0.86, 0.78, 0.92))
-	tip_box.add_child(tip_body)
+	tip_body.custom_minimum_size = Vector2(0, 0)
+	tip_inner.add_child(tip_body)
 	out["tip_body"] = tip_body
 
-	## --- Ending overlay ---
-	var end := PanelContainer.new()
-	end.name = "EndPanel"
-	end.theme = theme
-	end.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## --- Ending overlay (two-column stats, larger type, content-heavy) ---
+	var end := _make_framed_panel("EndPanel", "compact")
 	end.set_anchors_preset(Control.PRESET_CENTER)
 	end.anchor_left = 0.5
 	end.anchor_right = 0.5
 	end.anchor_top = 0.5
 	end.anchor_bottom = 0.5
-	end.offset_left = -260.0
-	end.offset_right = 260.0
-	end.offset_top = -160.0
-	end.offset_bottom = 180.0
+	end.offset_left = -300.0
+	end.offset_right = 300.0
+	end.offset_top = -210.0
+	end.offset_bottom = 210.0
 	end.visible = false
 	end.modulate.a = 0.0
 	layer.add_child(end)
 	out["end"] = end
 
-	var end_box := VBoxContainer.new()
-	end_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	end_box.add_theme_constant_override("separation", 6)
-	end.add_child(end_box)
+	var end_inner: VBoxContainer = end.get_node("Fill/Pad/Box")
+	end_inner.add_theme_constant_override("separation", 10)
+	end_inner.alignment = BoxContainer.ALIGNMENT_CENTER
 
-	var end_title := Label.new()
-	end_title.name = "EndTitle"
+	var end_title := _make_label("EndTitle", "SWARM", tf, 30, COL_TITLE, true)
 	end_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	end_title.text = "SWARM"
-	if tf:
-		end_title.add_theme_font_override("font", tf)
-	end_title.add_theme_font_size_override("font_size", 28)
-	end_title.add_theme_color_override("font_color", Color(0.95, 0.94, 0.86, 1.0))
-	end_box.add_child(end_title)
+	end_inner.add_child(end_title)
 	out["end_title"] = end_title
 
-	var end_sub := Label.new()
-	end_sub.name = "EndSub"
+	var end_sub := _make_label("EndSub", "Orbit", bf, 16, COL_BODY, false)
 	end_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	end_sub.text = "Orbit"
-	if bf:
-		end_sub.add_theme_font_override("font", bf)
-	end_sub.add_theme_font_size_override("font_size", 14)
-	end_sub.add_theme_color_override("font_color", Color(0.78, 0.82, 0.72, 0.9))
-	end_box.add_child(end_sub)
+	end_inner.add_child(end_sub)
 	out["end_sub"] = end_sub
 
-	var end_stats := Label.new()
-	end_stats.name = "EndStats"
-	end_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	end_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	if bf:
-		end_stats.add_theme_font_override("font", bf)
-	end_stats.add_theme_font_size_override("font_size", 15)
-	end_stats.add_theme_color_override("font_color", Color(0.9, 0.92, 0.86, 0.95))
-	end_box.add_child(end_stats)
-	out["end_stats"] = end_stats
+	var stats_grid := GridContainer.new()
+	stats_grid.name = "StatsGrid"
+	stats_grid.columns = 2
+	stats_grid.add_theme_constant_override("h_separation", 28)
+	stats_grid.add_theme_constant_override("v_separation", 8)
+	stats_grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	end_inner.add_child(stats_grid)
+	out["end_stats_grid"] = stats_grid
+	out["end_stat_font"] = bf
+	## Keep a dummy for older refresh callers (unused).
+	out["end_stats"] = null
 
 	return out
+
+
+static func _make_framed_panel(pname: String, border_mode: String) -> PanelContainer:
+	var outer := PanelContainer.new()
+	outer.name = pname
+	outer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	outer.add_theme_stylebox_override("panel", _chrome_style(border_mode))
+
+	## Smooth dark fill — honeycomb stays on the 9-slice border only.
+	var fill := PanelContainer.new()
+	fill.name = "Fill"
+	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fill.add_theme_stylebox_override("panel", _fill_style())
+	outer.add_child(fill)
+
+	var pad := MarginContainer.new()
+	pad.name = "Pad"
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pad.add_theme_constant_override("margin_left", int(PAD))
+	pad.add_theme_constant_override("margin_right", int(PAD))
+	pad.add_theme_constant_override("margin_top", int(PAD))
+	pad.add_theme_constant_override("margin_bottom", int(PAD))
+	fill.add_child(pad)
+
+	var box := VBoxContainer.new()
+	box.name = "Box"
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_theme_constant_override("separation", 6)
+	pad.add_child(box)
+	return outer
+
+
+static func _chrome_style(border_mode: String) -> StyleBox:
+	if ResourceLoader.exists(PANEL_TEX) or FileAccess.file_exists(PANEL_TEX):
+		var tex: Texture2D = load(PANEL_TEX) as Texture2D
+		if tex != null:
+			var sb := StyleBoxTexture.new()
+			sb.texture = tex
+			## Honeycomb is border-only — do not draw the busy center fill.
+			sb.draw_center = false
+			if border_mode == "slim":
+				## Short hint/tooltip panels: margins must leave a real content hole.
+				sb.texture_margin_left = 40
+				sb.texture_margin_top = 28
+				sb.texture_margin_right = 28
+				sb.texture_margin_bottom = 28
+				sb.content_margin_left = 8
+				sb.content_margin_right = 8
+				sb.content_margin_top = 6
+				sb.content_margin_bottom = 6
+			elif border_mode == "compact":
+				## Ending: thinner frame relative to large content area.
+				sb.texture_margin_left = 66
+				sb.texture_margin_top = 48
+				sb.texture_margin_right = 48
+				sb.texture_margin_bottom = 48
+				sb.content_margin_left = 10
+				sb.content_margin_right = 10
+				sb.content_margin_top = 8
+				sb.content_margin_bottom = 8
+			else:
+				## Full Art Pipeline margins: L/T/R/B = 102/74/74/74.
+				sb.texture_margin_left = 102
+				sb.texture_margin_top = 74
+				sb.texture_margin_right = 74
+				sb.texture_margin_bottom = 74
+				sb.content_margin_left = 14
+				sb.content_margin_right = 14
+				sb.content_margin_top = 12
+				sb.content_margin_bottom = 12
+			return sb
+	var flat := StyleBoxFlat.new()
+	flat.bg_color = Color(0, 0, 0, 0)
+	flat.border_color = Color(0.55, 0.4, 0.22, 0.9)
+	flat.set_border_width_all(3)
+	flat.set_corner_radius_all(8)
+	flat.content_margin_left = 10
+	flat.content_margin_right = 10
+	flat.content_margin_top = 8
+	flat.content_margin_bottom = 8
+	return flat
+
+
+static func _fill_style() -> StyleBoxFlat:
+	var fill := StyleBoxFlat.new()
+	## Smooth dark plate with a slight top→bottom warmth (gradient via border tint).
+	fill.bg_color = COL_FILL
+	fill.border_color = COL_FILL_TOP
+	fill.border_width_top = 3
+	fill.border_width_bottom = 0
+	fill.border_width_left = 0
+	fill.border_width_right = 0
+	fill.set_corner_radius_all(4)
+	fill.content_margin_left = 0
+	fill.content_margin_right = 0
+	fill.content_margin_top = 0
+	fill.content_margin_bottom = 0
+	return fill
+
+
+static func _make_label(lname: String, text: String, font: Font, size_px: int, col: Color, title: bool) -> Label:
+	var lab := Label.new()
+	lab.name = lname
+	lab.text = text
+	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if font:
+		lab.add_theme_font_override("font", font)
+	lab.add_theme_font_size_override("font_size", size_px)
+	lab.add_theme_color_override("font_color", col)
+	## 1px dark outline + soft shadow for contrast on any plate.
+	lab.add_theme_constant_override("outline_size", 1)
+	lab.add_theme_color_override("font_outline_color", COL_OUTLINE)
+	lab.add_theme_color_override("font_shadow_color", Color(0.02, 0.01, 0.0, 0.75))
+	lab.add_theme_constant_override("shadow_offset_x", 1)
+	lab.add_theme_constant_override("shadow_offset_y", 1)
+	if title:
+		lab.add_theme_constant_override("outline_size", 2)
+	return lab
 
 
 static func set_debug_visible(nodes: Dictionary, on: bool) -> void:
@@ -189,7 +267,6 @@ static func refresh_hint(nodes: Dictionary, time_s: float, label: String, force:
 	hint.visible = show
 	if show and nodes.has("hint_label"):
 		(nodes["hint_label"] as Label).text = label
-	## Soft fade near the cutoff.
 	if show and not force and time_s > HINT_UNTIL - 8.0:
 		hint.modulate.a = clampf((HINT_UNTIL - time_s) / 8.0, 0.0, 1.0)
 	elif show:
@@ -204,24 +281,29 @@ static func refresh_tooltip(nodes: Dictionary, info: Dictionary, screen_pos: Vec
 		tip.visible = false
 		return
 	tip.visible = true
+	var title_s := str(info.get("title", ""))
+	var body_s := str(info.get("body", ""))
 	if nodes.has("tip_title"):
-		(nodes["tip_title"] as Label).text = str(info.get("title", ""))
+		(nodes["tip_title"] as Label).text = title_s
 	if nodes.has("tip_body"):
-		(nodes["tip_body"] as Label).text = str(info.get("body", ""))
-	## Keep panel on-screen.
+		var body_lab: Label = nodes["tip_body"]
+		body_lab.text = body_s
+		## Soft wrap only for long lines; otherwise hug text.
+		var wrap_w := 320.0 if body_s.length() > 42 else 0.0
+		body_lab.custom_minimum_size = Vector2(wrap_w, 0)
+		body_lab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART if wrap_w > 0.0 else TextServer.AUTOWRAP_OFF
+	## Reset forced size so content drives layout, then clamp on-screen.
+	tip.size = Vector2.ZERO
+	tip.reset_size()
+	var sz: Vector2 = tip.get_combined_minimum_size()
+	tip.size = sz
 	var vp := tip.get_viewport_rect().size
-	var sz := tip.get_combined_minimum_size()
-	if sz.x < 200.0:
-		sz.x = 240.0
-	if sz.y < 60.0:
-		sz.y = 72.0
 	var x := clampf(screen_pos.x + 18.0, 8.0, maxf(8.0, vp.x - sz.x - 8.0))
 	var y := clampf(screen_pos.y + 18.0, 8.0, maxf(8.0, vp.y - sz.y - 8.0))
 	tip.position = Vector2(x, y)
-	tip.size = sz
 
 
-static func refresh_ending(nodes: Dictionary, rod: String, orbit_t: float, stats_lines: Array) -> void:
+static func refresh_ending(nodes: Dictionary, rod: String, orbit_t: float, stats_rows: Array) -> void:
 	if not nodes.has("end"):
 		return
 	var end: PanelContainer = nodes["end"]
@@ -234,13 +316,34 @@ static func refresh_ending(nodes: Dictionary, rod: String, orbit_t: float, stats
 		(nodes["end_title"] as Label).text = "SWARM"
 	if nodes.has("end_sub"):
 		(nodes["end_sub"] as Label).text = "Apis — orbit" if rod == "apis" else "Mycelium — orbit"
-	if nodes.has("end_stats"):
-		var body := ""
-		for line in stats_lines:
-			if body != "":
-				body += "\n"
-			body += str(line)
-		(nodes["end_stats"] as Label).text = body
+	if not nodes.has("end_stats_grid"):
+		return
+	var grid: GridContainer = nodes["end_stats_grid"]
+	## Clear previous rows.
+	for c in grid.get_children():
+		c.queue_free()
+	var font: Font = nodes.get("end_stat_font", null)
+	for row in stats_rows:
+		var lab_s := ""
+		var val_s := ""
+		if typeof(row) == TYPE_DICTIONARY:
+			lab_s = str(row.get("label", ""))
+			val_s = str(row.get("value", ""))
+		else:
+			## Fallback: "Label  value" split on last spaces-run.
+			var raw := str(row)
+			var parts: PackedStringArray = raw.split("  ")
+			if parts.size() >= 2:
+				lab_s = parts[0]
+				val_s = parts[parts.size() - 1]
+			else:
+				lab_s = raw
+		var lab := _make_label("L", lab_s, font, 22, COL_BODY, false)
+		lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		var val := _make_label("V", val_s, font, 22, COL_TITLE, true)
+		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		grid.add_child(lab)
+		grid.add_child(val)
 
 
 static func fmt_clock(t: float) -> String:
@@ -251,21 +354,21 @@ static func fmt_clock(t: float) -> String:
 
 static func mycelium_stats(m: Dictionary) -> Array:
 	return [
-		"Čas běhu  %s" % fmt_clock(float(m.get("time", 0.0))),
-		"Kotvy  %d" % int(m.get("anchors", 0)),
-		"Segmenty  %d" % int(m.get("segs", 0)),
-		"Dělníci  %d" % int(m.get("workers", 0)),
-		"Špičky  %d" % int(m.get("tips", 0)),
+		{"label": "Čas běhu", "value": fmt_clock(float(m.get("time", 0.0)))},
+		{"label": "Kotvy", "value": str(int(m.get("anchors", 0)))},
+		{"label": "Segmenty", "value": str(int(m.get("segs", 0)))},
+		{"label": "Dělníci", "value": str(int(m.get("workers", 0)))},
+		{"label": "Špičky", "value": str(int(m.get("tips", 0)))},
 	]
 
 
 static func apis_stats(m: Dictionary) -> Array:
 	return [
-		"Čas běhu  %s" % fmt_clock(float(m.get("time", 0.0))),
-		"Komory  %d" % int(m.get("chambers", 0)),
-		"Dělnice  %d" % int(m.get("workers", 0)),
-		"Trasy  %d" % int(m.get("routes", 0)),
-		"Vosk  %.0f%%" % (float(m.get("wax", 0.0)) * 100.0),
+		{"label": "Čas běhu", "value": fmt_clock(float(m.get("time", 0.0)))},
+		{"label": "Komory", "value": str(int(m.get("chambers", 0)))},
+		{"label": "Dělnice", "value": str(int(m.get("workers", 0)))},
+		{"label": "Trasy", "value": str(int(m.get("routes", 0)))},
+		{"label": "Vosk", "value": "%.0f%%" % (float(m.get("wax", 0.0)) * 100.0)},
 	]
 
 
@@ -351,7 +454,6 @@ static func inspect_apis(world, wx: float, wy: float) -> Dictionary:
 				best = {"title": "Komora", "body": "Připravená plástev — brzy vylíhne dělnici."}
 			else:
 				best = {"title": "Komora", "body": "Obsazená plástev. Odkazuj dělnice na květiny."}
-	## Buildable empty neighbor cells.
 	if world.planted:
 		for ch2 in world.chambers.values():
 			if ch2.grow < 1.0:
