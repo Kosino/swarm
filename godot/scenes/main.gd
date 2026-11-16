@@ -51,6 +51,8 @@ var _prev_pulse: float = 0.0
 var _prev_bright: float = 0.0
 var _prev_anchors: int = 0
 var _prev_workers: int = 0
+var _prev_mite_alive: bool = false
+var _prev_mite_purged: bool = false
 var _had_seed: bool = false
 var _seen_rings: int = 0
 var help_open: bool = false
@@ -156,6 +158,8 @@ func _ready() -> void:
 	_had_seed = world.seed != null
 	_prev_anchors = _count_anchors()
 	_prev_workers = world.workers.size()
+	_prev_mite_alive = world.mite_nest != null and not world.mite_purged
+	_prev_mite_purged = world.mite_purged
 	_seen_rings = world.rings.size()
 	camera.position = Iso.world_to_iso(_nest().x, _nest().y)
 	zoom_target = 1.0
@@ -494,7 +498,33 @@ func _tick_fx(dt: float) -> void:
 	var workers: int = world.workers.size()
 	if workers > _prev_workers:
 		Juice.spawn_float(_juice, _nest().x, _nest().y - 10.0, "+%d" % (workers - _prev_workers), Color(0.85, 0.95, 0.78, 0.9))
+		## Spore-crawler spawn puff (art_drop myc2_fx_spora).
+		_spawn_fx("myc2_fx_spora", _nest().x + 6.0, _nest().y - 4.0, 0.85)
 	_prev_workers = workers
+	## Mite invasion hit / death VFX — art_drop kapka + spora sequences.
+	var mite_alive: bool = world.mite_nest != null and not world.mite_purged and world.quarantine_time == null
+	if mite_alive and not _prev_mite_alive and world.mite_nest != null:
+		var nest_h: Dictionary = world.mite_nest
+		_spawn_fx("myc2_fx_kapka", float(nest_h.x), float(nest_h.y), 1.05)
+		_spawn_fx("myc2_fx_spora", float(nest_h.x) + 10.0, float(nest_h.y) - 6.0, 1.1)
+		Juice.spawn_ripple(_juice, float(nest_h.x), float(nest_h.y), true, Color(0.55, 0.5, 0.35, 0.7))
+		Juice.spawn_pop(_juice, float(nest_h.x), float(nest_h.y), Color(0.7, 0.55, 0.35, 0.9), 0.4)
+		for mite_h in world.mites:
+			_spawn_fx("myc2_fx_spora", float(mite_h.x), float(mite_h.y), 0.7)
+	if world.mite_purged and not _prev_mite_purged:
+		var nx: float = _nest().x
+		var ny: float = _nest().y
+		if world.mite_nest != null:
+			nx = float(world.mite_nest.x)
+			ny = float(world.mite_nest.y)
+		_spawn_fx("myc2_fx_kapka", nx, ny, 1.15)
+		_spawn_fx("myc2_fx_spora", nx + 8.0, ny - 10.0, 1.25)
+		_spawn_fx("myc2_fx_spora", nx - 10.0, ny - 4.0, 1.0)
+		Juice.spawn_ripple(_juice, nx, ny, true, Color(0.65, 0.9, 0.55, 0.8))
+		Juice.spawn_pop(_juice, nx, ny, Color(0.85, 0.95, 0.7, 0.95), 0.5)
+		Juice.spawn_float(_juice, nx, ny - 12.0, "purge", Color(0.8, 0.95, 0.7, 0.95))
+	_prev_mite_alive = mite_alive
+	_prev_mite_purged = world.mite_purged
 	_prev_pulse = world.network_pulse
 	_prev_bright = world.network_bright
 	var i := _fx.size() - 1
@@ -1127,7 +1157,7 @@ func _draw_entities() -> void:
 		else:
 			draw_circle(Iso.world_to_iso(world.seed.x, world.seed.y), 6.0, Color(0.5, 0.9, 0.6))
 
-	## Translucent yellow-green spores/workers — spaced + capped by graphics quality.
+	## Spore crawlers (dělníci) — art_drop iso 3/4; spaced + capped by graphics quality.
 	var drawn_workers: Array = []
 	var spacing: float = SwarmGfx.worker_spacing()
 	var max_w: int = SwarmGfx.max_workers_drawn()
@@ -1164,14 +1194,19 @@ func _draw_entities() -> void:
 		var name := ("myc2_delnik_neseni_%s" if carrying else "myc2_delnik_%s") % dir
 		if not atlas.has(name):
 			name = "myc2_delnik_SE"
-		var wsc: float = 0.32 if not _use_2x else 0.16
+		## 3/4 readable crawler silhouette (was 0.32 translucent dust).
+		var wsc: float = 0.58 if not _use_2x else 0.29
+		var wlift := Vector2(0.0, -3.0)
 		if SwarmGfx.soft_shadows():
-			_draw_soft_shadow(px, py, 2.0, 0.1)
+			_draw_soft_shadow(px, py, 4.5, 0.18)
 		if atlas.has(name):
-			## Subtle translucent yellow-green spores along strips.
-			_blit(name, px, py, wsc, Color(1.4, 1.7, 0.5, 0.48))
+			var wmod := Color(1.15, 1.35, 0.75, 0.82) if carrying else Color(1.05, 1.25, 0.7, 0.78)
+			_blit(name, px, py, wsc, wmod, wlift)
+			## Soft spore glint on carrying crawlers.
+			if carrying and atlas.has("myc2_overlay_zare") and SwarmGfx.q_level() == 0:
+				_blit("myc2_overlay_zare", px, py, wsc * 0.55, Color(1.2, 1.45, 0.7, 0.16), wlift + Vector2(0, -2))
 		else:
-			draw_circle(iso_w, 1.2, Color(0.85, 1.0, 0.35, 0.45))
+			draw_circle(iso_w, 2.0, Color(0.85, 1.0, 0.35, 0.7))
 		drawn_workers.append(Vector2(px, py))
 
 	if world.stroke_active and world.stroke.size() > 1:
@@ -1183,25 +1218,49 @@ func _draw_entities() -> void:
 
 	## Build 13: no matter-site prorust hatch overlays.
 
-	## Mid-game mite nest (GDD Invaze roztočů) — pro_v3 beetle + tiny grey workers.
+	## Mid-game mite enemies (GDD Invaze roztočů) — beetle nest + grey crawler mites, 3/4.
 	if world.mite_nest != null and not world.mite_purged and world.quarantine_time == null:
 		var nest = world.mite_nest
-		var nest_a: float = 0.55 + world.mite_pressure * 0.35
+		var nest_a: float = 0.6 + world.mite_pressure * 0.35
+		var nest_sc: float = 0.42 if not _use_2x else 0.21
+		var nest_lift := Vector2(0.0, -6.0)
+		if SwarmGfx.soft_shadows():
+			_draw_soft_shadow(nest.x, nest.y, 16.0, 0.28 + world.mite_pressure * 0.1)
 		if ProArt.has(pro, "myc_infected_beetle"):
 			ProArt.blit(
 				self, pro, "myc_infected_beetle",
-				Iso.world_to_iso(nest.x, nest.y),
-				0.28 if not _use_2x else 0.14,
-				Color(0.75, 0.7, 0.55, nest_a)
+				Iso.world_to_iso(nest.x, nest.y) + nest_lift,
+				nest_sc,
+				Color(0.82, 0.72, 0.5, nest_a)
 			)
 		elif atlas.has("myc2_plodnice_rozestavena"):
-			_blit("myc2_plodnice_rozestavena", nest.x, nest.y, 0.28 if not _use_2x else 0.14, Color(0.55, 0.5, 0.4, nest_a))
+			_blit("myc2_plodnice_rozestavena", nest.x, nest.y, nest_sc, Color(0.55, 0.5, 0.4, nest_a), nest_lift)
 		for mite in world.mites:
-			var msc: float = 0.18 if not _use_2x else 0.09
-			if atlas.has("myc2_delnik_SE"):
-				_blit("myc2_delnik_SE", mite.x, mite.y, msc, Color(0.55, 0.5, 0.4, 0.55 + world.mite_pressure * 0.3))
+			## Facing orbit tangent — grey enemy crawlers, shorter than spore dělníci.
+			var mph: float = float(mite.get("ph", 0.0))
+			var mdir := "SE"
+			if cos(mph) < -0.35:
+				mdir = "NW"
+			elif sin(mph) > 0.35:
+				mdir = "NE"
+			elif sin(mph) < -0.35:
+				mdir = "SW"
+			var mname := "myc2_delnik_%s" % mdir
+			if not atlas.has(mname):
+				mname = "myc2_delnik_SE"
+			var msc: float = 0.38 if not _use_2x else 0.19
+			var mlift := Vector2(0.0, -2.0)
+			var hit_flash: float = 0.12 + 0.1 * abs(sin(world.time * 6.0 + mph))
+			if SwarmGfx.soft_shadows():
+				_draw_soft_shadow(mite.x, mite.y, 3.5, 0.16)
+			if atlas.has(mname):
+				_blit(
+					mname, mite.x, mite.y, msc,
+					Color(0.62 + hit_flash, 0.48, 0.38, 0.72 + world.mite_pressure * 0.22),
+					mlift
+				)
 			else:
-				draw_circle(Iso.world_to_iso(mite.x, mite.y), float(mite.r) * 0.35, Color(0.5, 0.45, 0.35, 0.7))
+				draw_circle(Iso.world_to_iso(mite.x, mite.y), float(mite.r) * 0.45, Color(0.5, 0.45, 0.35, 0.75))
 
 	## Age 3 — pro_v3 sprites (no procedural boxes when pack present).
 	if world.infected != null:
