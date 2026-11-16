@@ -9,6 +9,7 @@ const Atm = preload("res://ui/atmosphere.gd")
 const ProArt = preload("res://ui/pro_art.gd")
 const STheme = preload("res://ui/swarm_theme.gd")
 const Juice = preload("res://ui/juice.gd")
+const Diegetic = preload("res://ui/diegetic.gd")
 
 @onready var camera: Camera2D = $Camera2D
 @onready var hud: CanvasLayer = $HUD
@@ -34,6 +35,7 @@ var atlas: Dictionary = {}
 var sequences: Dictionary = {}
 var pro: Dictionary = {}
 var _atm: Dictionary = {}
+var _die: Dictionary = {}
 var _use_2x: bool = false
 var _orbit_done: bool = false
 var _other_planet_a: float = 0.0
@@ -50,6 +52,9 @@ var _had_planted: bool = false
 var help_open: bool = false
 var _view: Rect2 = Rect2()
 var _help_draw: Node2D
+var _hover_info: Dictionary = {}
+var _mouse_screen: Vector2 = Vector2.ZERO
+var _capture_tooltip: bool = false
 
 
 func _ready() -> void:
@@ -76,6 +81,8 @@ func _ready() -> void:
 			capture_at = float(s2.substr(13))
 		if s2.begins_with("--capture-out="):
 			capture_out = s2.substr(14)
+		if s2 == "--capture-tooltip" or s2 == "capture-tooltip":
+			_capture_tooltip = true
 	pro = ProArt.load_all(_use_2x)
 	texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	if get_tree().has_meta("swarm_continue") and bool(get_tree().get_meta("swarm_continue")):
@@ -108,7 +115,10 @@ func _ready() -> void:
 		world.cam_zoom = world.cam_zoom_target
 	SwarmAudio.set_ambient("apis")
 	_atm = Atm.apply(self, "apis", camera, hud)
-	hud.visible = demo_on
+	## Diegetic chrome always on; debug Panel only via F1 / --demo.
+	hud.visible = true
+	_die = Diegetic.mount(hud, "apis")
+	Diegetic.set_debug_visible(_die, demo_on)
 	_had_planted = world.planted
 	_prev_chambers = world.chambers.size()
 	_prev_wax = float(world.wax)
@@ -117,12 +127,25 @@ func _ready() -> void:
 	zoom_target = 1.0
 	camera.zoom = Vector2(zoom_target * world.cam_zoom, zoom_target * world.cam_zoom)
 	Atm.sync_light(_atm, camera.position)
+	_refresh_hud()
 	queue_redraw()
 	if capture_at >= 0.0 and capture_out != "":
+		## Capture-only: Age 3 holds rarely complete under autoplay — force ending chrome for stills.
+		if capture_at >= 890.0 and world.mvp_end_time == null:
+			world._trigger_mvp_end()
+		if world.mvp_end_time != null:
+			world.orbit_t = maxf(world.orbit_t, 3.2)
+			_other_planet_a = 1.0
+			world.cam_zoom = world.cam_zoom_target
+			camera.zoom = Vector2(zoom_target * world.cam_zoom, zoom_target * world.cam_zoom)
+		if _capture_tooltip:
+			_force_capture_tooltip()
+		_refresh_hud()
+		queue_redraw()
 		await get_tree().process_frame
 		await get_tree().process_frame
 		await get_tree().process_frame
-		print("capture_time_verify apis t=", world.time, " chambers=", world.chambers.size(), " trails=", world.trails.size(), " dusk=", world.dusk, " bloom=", world.meadow_bloom, " floor2=", world.floor2)
+		print("capture_time_verify apis t=", world.time, " chambers=", world.chambers.size(), " trails=", world.trails.size(), " dusk=", world.dusk, " bloom=", world.meadow_bloom, " floor2=", world.floor2, " orbit=", world.orbit_t, " end=", world.mvp_end_time != null)
 		var img: Image = get_viewport().get_texture().get_image()
 		if img:
 			img.save_png(capture_out)
@@ -192,7 +215,7 @@ func _process(dt: float) -> void:
 	_tick_fx(dt)
 	if world.mvp_end_time != null:
 		_other_planet_a = minf(1.0, _other_planet_a + dt * 0.35)
-		if world.orbit_t > 4.5 and not _orbit_done:
+		if world.orbit_t > Diegetic.ORBIT_HOLD and not _orbit_done:
 			_orbit_done = true
 			_return_menu(true)
 			return
@@ -226,13 +249,22 @@ func _process(dt: float) -> void:
 
 func _refresh_hud() -> void:
 	var g = world.guidance()
-	guide_label.text = str(g.get("label", ""))
+	var label := str(g.get("label", ""))
+	guide_label.text = label
+	var force_hint := world.mvp_end_time == null and world.time < Diegetic.HINT_UNTIL
+	Diegetic.refresh_hint(_die, float(world.time), label, force_hint)
+	if world.mvp_end_time != null:
+		Diegetic.refresh_tooltip(_die, {}, _mouse_screen)
+		Diegetic.refresh_ending(_die, "apis", float(world.orbit_t), Diegetic.apis_stats(world.metrics()))
+	else:
+		Diegetic.refresh_ending(_die, "apis", 0.0, [])
+		Diegetic.refresh_tooltip(_die, _hover_info, _mouse_screen)
 	if not demo_on:
 		return
 	var m = world.metrics()
 	clock_label.text = _fmt_clock(float(m.time))
 	speed_label.text = "Rychlost: %.0f×" % speed_mul
-	next_label.text = "Dál: %s" % str(g.get("label", ""))
+	next_label.text = "Dál: %s" % label
 	var wows = world.poll_wows()
 	if wows.size() > 0:
 		wow_label.text = str(wows[wows.size() - 1].label)
@@ -242,9 +274,19 @@ func _refresh_hud() -> void:
 
 
 func _fmt_clock(t: float) -> String:
-	var m := int(floor(t / 60.0))
-	var s := int(floor(fmod(t, 60.0)))
-	return "%d:%02d" % [m, s]
+	return Diegetic.fmt_clock(t)
+
+
+func _force_capture_tooltip() -> void:
+	for f in world.flowers:
+		if f.get("tree", false):
+			continue
+		_hover_info = {"title": "Květina", "body": "Táhni od úlu sem — odkaž dělnici na nektar."}
+		var iso := Iso.world_to_iso(f.x, f.y)
+		_mouse_screen = get_viewport().get_canvas_transform() * iso
+		return
+	_hover_info = {"title": "Jádro", "body": "Královna / procesor. Stav komory kolem."}
+	_mouse_screen = Vector2(640, 280)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -263,7 +305,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 	if event.is_action_pressed("toggle_demo"):
 		demo_on = not demo_on
-		hud.visible = demo_on
+		Diegetic.set_debug_visible(_die, demo_on)
 		return
 	if demo_on and event is InputEventKey and event.pressed and not event.echo:
 		match event.physical_keycode:
@@ -294,6 +336,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			var wpos := _screen_to_world(mb.position)
 			if mb.pressed:
 				_drag = true
+				_hover_info = {}
 				world.note_pointer()
 				world.pointer_down(wpos.x, wpos.y)
 			else:
@@ -301,6 +344,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				world.pointer_up()
 	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
+		_mouse_screen = mm.position
 		if panning:
 			var delta: Vector2 = mm.position - pan_last
 			pan_last = mm.position
@@ -309,6 +353,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			var wpos2 := _screen_to_world(mm.position)
 			world.note_pointer()
 			world.pointer_move(wpos2.x, wpos2.y)
+			_hover_info = {}
+		elif world.mvp_end_time == null:
+			var wpos3 := _screen_to_world(mm.position)
+			_hover_info = Diegetic.inspect_apis(world, wpos3.x, wpos3.y)
 
 
 func _screen_to_world(screen: Vector2) -> Vector2:
@@ -1044,24 +1092,23 @@ func _draw_soft_shadow(wx: float, wy: float, radius: float, alpha: float = 0.28)
 func _draw_ending_planet() -> void:
 	var vp := get_viewport_rect().size
 	var cam := camera.position
+	var z: float = maxf(camera.zoom.x, 0.2)
+	var a_bg: float = minf(0.92, world.orbit_t * 0.28)
 	if ProArt.has(pro, "orbit_bg"):
-		ProArt.blit(self, pro, "orbit_bg", cam, 0.55 / maxf(camera.zoom.x, 0.2), Color(1, 1, 1, minf(0.85, world.orbit_t * 0.2)))
-	var p2 := cam + Vector2(-vp.x * 0.28 / maxf(camera.zoom.x, 0.2), -vp.y * 0.22 / maxf(camera.zoom.y, 0.2))
-	var tw: float = 0.4 + 0.6 * abs(sin(world.time * 2.5))
+		ProArt.blit(self, pro, "orbit_bg", cam, 0.72 / z, Color(1, 1, 1, a_bg))
+	draw_rect(Rect2(cam - vp * 0.55 / z, vp * 1.1 / z), Color(0.03, 0.02, 0.01, minf(0.45, world.orbit_t * 0.12)), true)
+	var p2 := cam + Vector2(-vp.x * 0.3 / z, -vp.y * 0.18 / z)
+	var tw: float = 0.45 + 0.55 * abs(sin(world.time * 2.2))
+	var planet_a: float = _other_planet_a * tw
 	if ProArt.has(pro, "ending_planet"):
-		ProArt.blit(self, pro, "ending_planet", p2, 0.12, Color(1, 1, 1, _other_planet_a * tw * 0.9))
+		ProArt.blit(self, pro, "ending_planet", p2, 0.16 / z * camera.zoom.x, Color(1.05, 1.02, 0.98, planet_a))
 	elif ProArt.has(pro, "menu_mycelium"):
-		ProArt.blit(self, pro, "menu_mycelium", p2, 0.08, Color(1, 1, 1, _other_planet_a * tw * 0.85))
+		ProArt.blit(self, pro, "menu_mycelium", p2, 0.1, Color(1, 1, 1, planet_a * 0.85))
 	else:
-		draw_circle(p2, 7.0, Color(0.4, 0.75, 0.5, _other_planet_a * tw))
-		draw_arc(p2, 14.0, 0, TAU, 24, Color(0.35, 0.7, 0.48, _other_planet_a * 0.45), 1.4)
-	if ProArt.has(pro, "swarm_logo"):
-		ProArt.blit(self, pro, "swarm_logo", cam + Vector2(0, -vp.y * 0.32 / maxf(camera.zoom.y, 0.2)), 0.22, Color(1, 1, 1, minf(1.0, world.orbit_t * 0.25)))
-	else:
-		var font: Font = STheme.title_font()
-		if font == null:
-			font = ThemeDB.fallback_font
-		draw_string(font, cam + Vector2(-48, -vp.y * 0.32 / maxf(camera.zoom.y, 0.2)), "SWARM", HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Color(0.95, 0.92, 0.82, minf(1.0, world.orbit_t * 0.25)))
+		draw_circle(p2, 10.0, Color(0.4, 0.75, 0.5, planet_a))
+		draw_arc(p2, 18.0, 0, TAU, 28, Color(0.35, 0.7, 0.48, planet_a * 0.45), 1.6)
+	if not _die.has("end") and ProArt.has(pro, "swarm_logo"):
+		ProArt.blit(self, pro, "swarm_logo", cam + Vector2(0, -vp.y * 0.32 / z), 0.22, Color(1, 1, 1, minf(1.0, world.orbit_t * 0.25)))
 
 
 func _draw_guidance() -> void:
