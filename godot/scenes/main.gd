@@ -173,7 +173,13 @@ func _ready() -> void:
 	_refresh_hud()
 	queue_redraw()
 	if capture_at >= 0.0 and capture_out != "":
-		## Capture-only: Age 3 holds rarely complete under autoplay — force ending chrome for stills.
+		## Capture-only: Age 3 holds rarely complete under autoplay — force Seeds / ending chrome for stills.
+		if capture_at >= 820.0 and world.giant_fruit == null:
+			world._trigger_giant()
+			if world.giant_fruit != null:
+				world.giant_fruit.grow = 1.0
+		if capture_at >= 878.0 and world.seed_capsule == null and world.giant_fruit != null:
+			world._trigger_seeds_hint()
 		if capture_at >= 890.0 and world.mvp_end_time == null:
 			world._trigger_mvp_end()
 		if world.mvp_end_time != null:
@@ -181,6 +187,14 @@ func _ready() -> void:
 			_other_planet_a = 1.0
 			world.cam_zoom = world.cam_zoom_target
 			camera.zoom = Vector2(zoom_target * world.cam_zoom, zoom_target * world.cam_zoom)
+			if world.seed_capsule != null:
+				world.seed_capsule.pulse = 1.0
+		elif world.seed_capsule != null or world.giant_fruit != null:
+			## Frame the Seeds hero for stills.
+			var hx: float = float(world.giant_fruit.x) if world.giant_fruit != null else float(world.seed_capsule.x)
+			var hy: float = float(world.giant_fruit.y) if world.giant_fruit != null else float(world.seed_capsule.y)
+			camera.position = Iso.world_to_iso(hx, hy) + Vector2(0, -40)
+			camera.zoom = Vector2(0.85, 0.85)
 		if _capture_tooltip:
 			_force_capture_tooltip()
 		_refresh_hud()
@@ -188,7 +202,7 @@ func _ready() -> void:
 		await get_tree().process_frame
 		await get_tree().process_frame
 		await get_tree().process_frame
-		print("capture_time_verify myc t=", world.time, " segs=", world.segs.size(), " tips=", world.tips.size(), " bright=", world.network_bright, " reach=", _visual_reach(), " orbit=", world.orbit_t, " end=", world.mvp_end_time != null)
+		print("capture_time_verify myc t=", world.time, " segs=", world.segs.size(), " tips=", world.tips.size(), " bright=", world.network_bright, " reach=", _visual_reach(), " orbit=", world.orbit_t, " end=", world.mvp_end_time != null, " giant=", world.giant_fruit != null, " seeds=", world.seed_capsule != null, " dim=", world.dim_all, " tobolka=", ProArt.has(pro, "myc_seed_capsule"))
 		var img: Image = get_viewport().get_texture().get_image()
 		if img:
 			img.save_png(capture_out)
@@ -264,6 +278,10 @@ func _process(dt: float) -> void:
 			_return_menu(true)
 			return
 	else:
+		## Soft frame the Seeds tobolka while the field dims.
+		if world.seed_capsule != null and world.dim_all > 0.2 and world.giant_fruit != null:
+			var focus := Iso.world_to_iso(float(world.giant_fruit.x), float(world.giant_fruit.y)) + Vector2(0, -40)
+			camera.position = camera.position.lerp(focus, 1.0 - exp(-dt * 1.4))
 		var move := Vector2.ZERO
 		if Input.is_action_pressed("cam_left"):
 			move.x -= 1
@@ -306,7 +324,7 @@ func _refresh_hud() -> void:
 		float(world.time),
 		OrganicHud.mycelium_fill(world),
 		OrganicHud.mycelium_roles(world),
-		world.mvp_end_time != null
+		world.mvp_end_time != null or world.dim_all > 0.35
 	)
 	if not demo_on:
 		return
@@ -1292,7 +1310,10 @@ func _draw_entities() -> void:
 			ProArt.blit(self, pro, "myc_skeleton", Iso.world_to_iso(sk.x, sk.y), 0.92 if not _use_2x else 0.46, Color(1.05, 1.02, 0.95, alpha))
 		elif atlas.has("myc2_kotva_dorostla"):
 			_blit("myc2_kotva_dorostla", sk.x, sk.y, 0.7 if not _use_2x else 0.35, Color(0.75, 0.7, 0.6, alpha))
-	if world.giant_fruit != null:
+	## Seeds 14:40 — myc_seed_capsule is full plodnice+tobolka (same pivot); replace plain fruit.
+	var seeds_on: bool = world.seed_capsule != null
+	var use_tobolka: bool = seeds_on and ProArt.has(pro, "myc_seed_capsule")
+	if world.giant_fruit != null and not use_tobolka:
 		var gf = world.giant_fruit
 		## Build 21: obří plodnice — more 3/4 volume.
 		if ProArt.has(pro, "myc_giant_fruit"):
@@ -1301,15 +1322,14 @@ func _draw_entities() -> void:
 			var gfn := "myc2_plodnice_zariva" if gf.grow > 0.7 else ("myc2_plodnice_dorostla" if gf.grow > 0.3 else "myc2_plodnice_rozestavena")
 			if atlas.has(gfn):
 				_blit(gfn, gf.x, gf.y, 0.88 + gf.grow * 0.45 if not _use_2x else 0.44 + gf.grow * 0.22, Color(1.2, 1.25, 1.05, 0.9 * dim), Vector2(0, -12))
-	if world.seed_capsule != null:
-		var sc = world.seed_capsule
-		var glow: float = 0.6 + 0.4 * abs(sin(world.time * 3.2))
-		if ProArt.has(pro, "myc_seed_capsule"):
-			ProArt.blit(self, pro, "myc_seed_capsule", Iso.world_to_iso(sc.x, sc.y) + Vector2(0, -8), 0.7 if not _use_2x else 0.35, Color(1.15, 1.2, 1.0, glow))
-		elif atlas.has("myc2_zarodek_zariva"):
-			_blit("myc2_zarodek_zariva", sc.x, sc.y, 0.58 if not _use_2x else 0.29, Color(1.3, 1.35, 1.1, glow), Vector2(0, -8))
+	if seeds_on and world.mvp_end_time == null and world.dim_all <= 0.0:
+		_draw_seed_capsule_hero()
 	if world.mvp_end_time != null:
 		_draw_ending_planet()
+	elif world.dim_all > 0.0:
+		_draw_seeds_dim_overlay()
+		if seeds_on:
+			_draw_seed_capsule_hero()
 
 
 func _draw_fx() -> void:
@@ -1344,29 +1364,80 @@ func _draw_soft_shadow(wx: float, wy: float, radius: float, alpha: float = 0.28)
 	draw_colored_polygon(_diamond_at(iso, radius * 1.15, radius * 0.55), Color(0.02, 0.03, 0.02, alpha))
 
 
+func _draw_seed_capsule_hero() -> void:
+	if world.seed_capsule == null and world.giant_fruit == null:
+		return
+	var gx: float = float(world.giant_fruit.x) if world.giant_fruit != null else float(world.seed_capsule.x)
+	var gy: float = float(world.giant_fruit.y) if world.giant_fruit != null else float(world.seed_capsule.y)
+	var glow: float = 0.72 + 0.28 * abs(sin(world.time * 3.2))
+	if world.seed_capsule != null:
+		glow = maxf(glow, 0.55 + 0.45 * abs(sin(world.time * 3.6)))
+	var iso := Iso.world_to_iso(gx, gy) + Vector2(0, -14 - 4.0 * abs(sin(world.time * 1.8)))
+	## Slight skyward lean — tobolka turns toward the heavens.
+	var lean: float = deg_to_rad(-8.0 - 4.0 * sin(world.time * 1.4))
+	var grow_v: float = float(world.giant_fruit.grow) if world.giant_fruit != null else 1.0
+	var sc: float = (1.05 + grow_v * 0.42) if not _use_2x else (0.52 + grow_v * 0.21)
+	var col := Color(1.28, 1.38, 1.1, minf(1.0, glow + 0.12))
+	if ProArt.has(pro, "myc_seed_capsule"):
+		draw_set_transform(iso, lean, Vector2.ONE)
+		ProArt.blit(self, pro, "myc_seed_capsule", Vector2.ZERO, sc, col)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		## Soft crown bloom on the capsule tip (sprite already carries the glowing tobolka).
+		var tip := iso + Vector2(lean * 20.0, -sc * 148.0)
+		draw_circle(tip, 14.0 + glow * 12.0, Color(0.85, 1.25, 0.55, 0.28 + glow * 0.28))
+		draw_arc(tip, 22.0 + glow * 14.0, 0, TAU, 28, Color(0.95, 1.35, 0.65, 0.35 + glow * 0.3), 1.8)
+		draw_arc(tip, 34.0 + glow * 10.0, 0, TAU, 28, Color(0.7, 1.1, 0.5, 0.18), 1.1)
+	elif atlas.has("myc2_zarodek_zariva"):
+		_blit("myc2_zarodek_zariva", gx, gy, 0.58 if not _use_2x else 0.29, Color(1.3, 1.35, 1.1, glow), Vector2(0, -8))
+
+
+func _draw_seeds_dim_overlay() -> void:
+	## "Zhasne vše kromě ní" — darken the field so the tobolka reads alone.
+	var a: float = clampf(world.dim_all * 0.78, 0.0, 0.82)
+	if a <= 0.01:
+		return
+	var vp := get_viewport_rect().size
+	var cam := camera.position
+	var z: float = maxf(camera.zoom.x, 0.2)
+	draw_rect(Rect2(cam - vp * 0.55 / z, vp * 1.1 / z), Color(0.02, 0.03, 0.04, a), true)
+
+
 func _draw_ending_planet() -> void:
 	var vp := get_viewport_rect().size
 	var cam := camera.position
 	var z: float = maxf(camera.zoom.x, 0.2)
-	var a_bg: float = minf(0.92, world.orbit_t * 0.28)
+	var a_bg: float = minf(0.94, world.orbit_t * 0.32)
 	## Full-bleed orbit nebula behind the far planet.
 	if ProArt.has(pro, "orbit_bg"):
-		ProArt.blit(self, pro, "orbit_bg", cam, 0.72 / z, Color(1, 1, 1, a_bg))
-	## Soft dim so the diegetic stats panel stays readable.
-	draw_rect(Rect2(cam - vp * 0.55 / z, vp * 1.1 / z), Color(0.02, 0.03, 0.04, minf(0.45, world.orbit_t * 0.12)), true)
+		ProArt.blit(self, pro, "orbit_bg", cam, 0.78 / z, Color(1, 1, 1, a_bg))
+	## Soft dim — keep nebula + planet readable under the logo beat.
+	draw_rect(Rect2(cam - vp * 0.55 / z, vp * 1.1 / z), Color(0.02, 0.03, 0.04, minf(0.32, world.orbit_t * 0.08)), true)
 	var p := cam + Vector2(vp.x * 0.3 / z, -vp.y * 0.18 / z)
-	var tw: float = 0.45 + 0.55 * abs(sin(world.time * 2.2))
+	var tw: float = 0.55 + 0.45 * abs(sin(world.time * 2.2))
 	var planet_a: float = _other_planet_a * tw
+	var psc: float = 0.24 / z * camera.zoom.x
 	if ProArt.has(pro, "ending_planet"):
-		ProArt.blit(self, pro, "ending_planet", p, 0.16 / z * camera.zoom.x, Color(1.05, 1.02, 0.98, planet_a))
+		## Warm Apis glimmer rings.
+		draw_circle(p, 28.0 / z, Color(1.0, 0.78, 0.35, planet_a * 0.12))
+		draw_arc(p, 34.0 / z, 0, TAU, 36, Color(1.0, 0.82, 0.4, planet_a * 0.4), 1.6)
+		draw_arc(p, 48.0 / z, 0, TAU, 36, Color(0.95, 0.7, 0.28, planet_a * 0.22), 1.1)
+		ProArt.blit(self, pro, "ending_planet", p, psc, Color(1.1, 1.05, 0.95, planet_a))
 	elif ProArt.has(pro, "menu_apis"):
-		ProArt.blit(self, pro, "menu_apis", p, 0.1, Color(1, 1, 1, planet_a * 0.85))
+		ProArt.blit(self, pro, "menu_apis", p, 0.12, Color(1, 1, 1, planet_a * 0.85))
 	else:
-		draw_circle(p, 10.0, Color(0.95, 0.75, 0.3, planet_a))
-		draw_arc(p, 18.0, 0, TAU, 28, Color(0.95, 0.7, 0.25, planet_a * 0.45), 1.6)
-	## Title lives in the 9-slice EndPanel — keep a faint logo only if panel missing.
-	if not _die.has("end") and ProArt.has(pro, "swarm_logo"):
-		ProArt.blit(self, pro, "swarm_logo", cam + Vector2(0, -vp.y * 0.32 / z), 0.22, Color(1, 1, 1, minf(1.0, world.orbit_t * 0.25)))
+		draw_circle(p, 12.0, Color(0.95, 0.75, 0.3, planet_a))
+		draw_arc(p, 20.0, 0, TAU, 28, Color(0.95, 0.7, 0.25, planet_a * 0.45), 1.6)
+	## Tobolka pulse toward the distant warm planet (once).
+	if world.seed_capsule != null and float(world.seed_capsule.get("pulse", 0.0)) > 0.2:
+		var tip := cam + Vector2(0, vp.y * 0.12 / z)
+		var pa: float = 0.2 + 0.45 * abs(sin(world.time * 2.4)) * float(world.seed_capsule.pulse)
+		draw_line(tip, p, Color(0.85, 1.15, 0.55, pa * 0.4), 2.4, true)
+		draw_line(tip, p, Color(1.15, 1.4, 0.8, pa), 1.1, true)
+	## World-space SWARM logo beat (pro_v3) — fades in before the stats panel.
+	var logo_a: float = clampf((world.orbit_t - 0.55) / 1.6, 0.0, 1.0)
+	var logo_key := "logo" if ProArt.has(pro, "logo") else "swarm_logo"
+	if logo_a > 0.02 and ProArt.has(pro, logo_key):
+		ProArt.blit(self, pro, logo_key, cam + Vector2(0, -vp.y * 0.36 / z), 0.34 if logo_key == "logo" else 0.42, Color(1, 1, 1, logo_a))
 
 
 func _draw_box_fallback(wx: float, wy: float, half: float, col: Color) -> void:

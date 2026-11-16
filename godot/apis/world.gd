@@ -1071,8 +1071,10 @@ func _trigger_mvp_end() -> void:
 	orbit_t = 0.01
 	cam_zoom_target = 0.22
 	if royal_cell != null:
-		royal_cell.queen = 1.0
+		## Keep sealed kukla (queen silhouette baked in) — pulse glow toward the other planet.
+		royal_cell.capped = true
 		royal_cell.glow = 1.0
+		royal_cell.queen = minf(1.0, float(royal_cell.queen))
 
 
 func update(dt: float) -> void:

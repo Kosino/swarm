@@ -98,10 +98,11 @@ static func mount(hud: CanvasLayer, rod: String) -> Dictionary:
 	end.anchor_right = 0.5
 	end.anchor_top = 0.5
 	end.anchor_bottom = 0.5
-	end.offset_left = -300.0
-	end.offset_right = 300.0
-	end.offset_top = -210.0
-	end.offset_bottom = 210.0
+	## Lower plate so orbit logo + other-planet glimmer stay readable above.
+	end.offset_left = -280.0
+	end.offset_right = 280.0
+	end.offset_top = -40.0
+	end.offset_bottom = 300.0
 	end.visible = false
 	end.modulate.a = 0.0
 	layer.add_child(end)
@@ -111,8 +112,25 @@ static func mount(hud: CanvasLayer, rod: String) -> Dictionary:
 	end_inner.add_theme_constant_override("separation", 10)
 	end_inner.alignment = BoxContainer.ALIGNMENT_CENTER
 
+	## pro_v3 wordmark — text title is fallback only.
+	var end_logo := TextureRect.new()
+	end_logo.name = "EndLogo"
+	end_logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	end_logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	end_logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	end_logo.custom_minimum_size = Vector2(300, 104)
+	end_logo.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var logo_tex: Texture2D = load("res://art/pro_v3/menu/logo_swarm_sm.png") as Texture2D
+	if logo_tex == null:
+		logo_tex = load("res://art/pro_v3/menu/logo_swarm.png") as Texture2D
+	end_logo.texture = logo_tex
+	end_logo.visible = logo_tex != null
+	end_inner.add_child(end_logo)
+	out["end_logo"] = end_logo
+
 	var end_title := _make_label("EndTitle", "SWARM", tf, 30, COL_TITLE, true)
 	end_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	end_title.visible = logo_tex == null
 	end_inner.add_child(end_title)
 	out["end_title"] = end_title
 
@@ -307,11 +325,17 @@ static func refresh_ending(nodes: Dictionary, rod: String, orbit_t: float, stats
 	if not nodes.has("end"):
 		return
 	var end: PanelContainer = nodes["end"]
-	var show := orbit_t > 0.35
+	## Let planet glimmer + logo beat read first; stats panel follows.
+	var show := orbit_t > 1.15
 	end.visible = show
 	if not show:
 		return
-	end.modulate.a = clampf((orbit_t - 0.35) / 1.2, 0.0, 1.0)
+	end.modulate.a = clampf((orbit_t - 1.15) / 1.4, 0.0, 1.0)
+	if nodes.has("end_logo"):
+		var logo: TextureRect = nodes["end_logo"]
+		logo.visible = logo.texture != null
+		if nodes.has("end_title"):
+			(nodes["end_title"] as Label).visible = not logo.visible
 	if nodes.has("end_title"):
 		(nodes["end_title"] as Label).text = "SWARM"
 	if nodes.has("end_sub"):
