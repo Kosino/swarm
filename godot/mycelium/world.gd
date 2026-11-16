@@ -63,11 +63,25 @@ var fruit_time: Variant = null
 var spore_time: Variant = null
 var join_time: Variant = null
 var hint_time: Variant = null
+var quarantine_time: Variant = null
+var skeleton_time: Variant = null
+var giant_time: Variant = null
+var seeds_time: Variant = null
+var mvp_end_time: Variant = null
 var heart_beat: float = 0.0
 var heart_phase: float = 0.0
 var foreign_net: float = 0.0
 var foreign_seed: Variant = null
 var decay_count: int = 0
+var infected: Variant = null ## {x,y,r,grey,dead}
+var skeleton: Variant = null ## {x,y,r,encircled,decay}
+var giant_fruit: Variant = null ## {x,y,r,grow}
+var seed_capsule: Variant = null ## {x,y,glow,pulse}
+var network_gold: float = 0.0
+var orbit_t: float = 0.0
+var dim_all: float = 0.0
+var age3_hold_t: float = 0.0
+var invasion_active: bool = false
 
 var idle_t: float = 0.0
 var show_ghost: bool = false
@@ -93,8 +107,12 @@ func _init(opts: Dictionary = {}) -> void:
 	else:
 		_rng = MyceliumRng.new(int(Time.get_ticks_msec()) & 0xFFFFFFFF)
 	_bootstrap_world()
-	if opts.has("startAt") and float(opts.startAt) >= C.START5_T - 5.0:
-		bootstrap_start5()
+	if opts.has("startAt"):
+		var at: float = float(opts.startAt)
+		if at >= C.START10_T - 5.0:
+			bootstrap_start10()
+		elif at >= C.START5_T - 5.0:
+			bootstrap_start5()
 
 
 func _rnd() -> float:
@@ -369,6 +387,124 @@ func _trigger_hint() -> void:
 	}
 
 
+func _begin_invasion() -> void:
+	if invasion_active or foreign_seed == null:
+		return
+	invasion_active = true
+	foreign_net = 1.0
+	infected = {
+		"x": foreign_seed.x,
+		"y": foreign_seed.y,
+		"r": C.INFECT_R,
+		"grey": 0.35,
+		"dead": false,
+	}
+
+
+func _trigger_quarantine() -> void:
+	if quarantine_time != null or infected == null or infected.dead:
+		return
+	quarantine_time = time
+	infected.dead = true
+	infected.grey = 1.0
+	foreign_net = 0.15
+	if seed != null:
+		for i in range(22):
+			var a: float = _rnd() * PI * 2.0
+			grains.append({
+				"x": infected.x + cos(a) * infected.r * 0.5,
+				"y": infected.y + sin(a) * infected.r * 0.5,
+				"vx": (seed.x - infected.x) * (0.12 + _rnd() * 0.2),
+				"vy": (seed.y - infected.y) * (0.12 + _rnd() * 0.2),
+				"life": 1.4 + _rnd(),
+			})
+	rings.append({"x": infected.x, "y": infected.y, "t": 0.0, "big": true})
+	network_bright = 1.0
+	_bump_perform("quarantine")
+	## Giant skeleton appears as foreign net retreats.
+	skeleton = {
+		"x": infected.x + (float(C.W) * 0.5 - infected.x) * 0.15,
+		"y": infected.y + (float(C.H) * 0.5 - infected.y) * 0.1,
+		"r": C.SKELETON_R,
+		"encircled": false,
+		"decay": 0.0,
+	}
+
+
+func _trigger_skeleton() -> void:
+	if skeleton_time != null or skeleton == null or skeleton.encircled:
+		return
+	skeleton_time = time
+	skeleton.encircled = true
+	network_gold = 1.0
+	network_bright = 1.0
+	_bump_perform("skeleton")
+	for g in germs:
+		for i in range(10):
+			var a: float = _rnd() * PI * 2.0
+			grains.append({
+				"x": skeleton.x + cos(a) * skeleton.r * 0.4,
+				"y": skeleton.y + sin(a) * skeleton.r * 0.4,
+				"vx": (g.x - skeleton.x) * (0.1 + _rnd() * 0.2),
+				"vy": (g.y - skeleton.y) * (0.1 + _rnd() * 0.2),
+				"life": 2.0 + _rnd(),
+			})
+	if germs.is_empty() and seed != null:
+		for i in range(16):
+			var a2: float = _rnd() * PI * 2.0
+			grains.append({
+				"x": skeleton.x, "y": skeleton.y,
+				"vx": (seed.x - skeleton.x) * (0.1 + _rnd() * 0.2),
+				"vy": (seed.y - skeleton.y) * (0.1 + _rnd() * 0.2),
+				"life": 2.0 + _rnd(),
+			})
+	rings.append({"x": skeleton.x, "y": skeleton.y, "t": 0.0, "big": true})
+
+
+func _main_fruit_pos() -> Dictionary:
+	for m in matters:
+		if m.kind == "fruit":
+			return {"x": m.x, "y": m.y, "r": m.r}
+	if seed != null:
+		return {"x": seed.x, "y": seed.y - 20.0, "r": 28.0}
+	return {"x": float(C.W) * 0.5, "y": float(C.H) * 0.5, "r": 28.0}
+
+
+func _trigger_giant() -> void:
+	if giant_time != null:
+		return
+	giant_time = time
+	var fp := _main_fruit_pos()
+	giant_fruit = {"x": fp.x, "y": fp.y - 10.0, "r": C.GIANT_FRUIT_R, "grow": 0.0}
+	network_bright = 1.0
+	heart_beat = 1.0
+	_bump_perform("giant")
+	rings.append({"x": fp.x, "y": fp.y, "t": 0.0, "big": true})
+
+
+func _trigger_seeds_hint() -> void:
+	if seeds_time != null or giant_fruit == null:
+		return
+	seeds_time = time
+	dim_all = 1.0
+	seed_capsule = {
+		"x": giant_fruit.x,
+		"y": giant_fruit.y - giant_fruit.r * 0.55,
+		"glow": 1.0,
+		"pulse": 0.0,
+	}
+
+
+func _trigger_mvp_end() -> void:
+	if mvp_end_time != null:
+		return
+	mvp_end_time = time
+	orbit_t = 0.01
+	cam_zoom_target = 0.22
+	if seed_capsule != null:
+		seed_capsule.pulse = 1.0
+
+
 func _shape_of_matter(m: Dictionary) -> Dictionary:
 	return {
 		"x": m.x, "y": m.y,
@@ -499,6 +635,28 @@ func _try_encircle() -> bool:
 			if near_end and G.path_length(poly) > C.ENC_MIN_LEN * 0.8:
 				_trigger_join()
 				return true
+
+	## Age 3 — quarantine infected zone / giant skeleton (same encircle gesture).
+	if (
+		hint_time != null and quarantine_time == null and infected != null and not infected.dead
+		and time >= C.WOW_QUARANTINE - 8.0
+	):
+		var rec_q = G.encircle_recognized(poly, {
+			"x": infected.x, "y": infected.y, "rx": infected.r, "ry": infected.r * 0.8,
+		}, {"minLen": C.ENC_MIN_LEN * 0.75, "minPts": 8, "closePx": C.ENC_CLOSE_R})
+		if rec_q.ok or G.point_in_poly(infected.x, infected.y, poly):
+			_trigger_quarantine()
+			return true
+	if (
+		quarantine_time != null and skeleton_time == null and skeleton != null and not skeleton.encircled
+		and time >= C.WOW_SKELETON - 8.0
+	):
+		var rec_s = G.encircle_recognized(poly, {
+			"x": skeleton.x, "y": skeleton.y, "rx": skeleton.r, "ry": skeleton.r * 0.75,
+		}, {"minLen": C.ENC_MIN_LEN * 0.9, "minPts": C.ENC_MIN_PTS, "closePx": C.ENC_CLOSE_R})
+		if rec_s.ok or G.point_in_poly(skeleton.x, skeleton.y, poly):
+			_trigger_skeleton()
+			return true
 	return false
 
 
@@ -723,6 +881,39 @@ func guidance() -> Dictionary:
 			"from": {"x": tip.x, "y": tip.y, "r": 8.0},
 			"to": {"x": germ.x, "y": germ.y, "r": 16.0},
 		}
+	if hint_time != null and quarantine_time == null and infected != null and not infected.dead:
+		return {
+			"stepId": "quarantine", "label": "Zakroužkuj nakaženou část",
+			"target": {"x": infected.x, "y": infected.y, "r": infected.r},
+			"target2": null, "ghost": "encircle", "from": null,
+			"to": {"x": infected.x, "y": infected.y, "r": infected.r},
+		}
+	if quarantine_time != null and skeleton_time == null and skeleton != null and not skeleton.encircled:
+		return {
+			"stepId": "skeleton", "label": "Zakroužkuj kostru stroje",
+			"target": {"x": skeleton.x, "y": skeleton.y, "r": skeleton.r},
+			"target2": null, "ghost": "encircle", "from": null,
+			"to": {"x": skeleton.x, "y": skeleton.y, "r": skeleton.r},
+		}
+	if skeleton_time != null and giant_time == null:
+		var fp := _main_fruit_pos()
+		return {
+			"stepId": "giant", "label": "Podrž hlavní plodnici",
+			"target": {"x": fp.x, "y": fp.y, "r": fp.r},
+			"target2": null, "ghost": "hold", "from": null,
+			"to": {"x": fp.x, "y": fp.y, "r": fp.r},
+		}
+	if mvp_end_time != null:
+		return {
+			"stepId": "orbit", "label": "SWARM",
+			"target": null, "target2": null, "ghost": null, "from": null, "to": null,
+		}
+	if seeds_time != null:
+		return {
+			"stepId": "seeds", "label": "Sleduj tobolku",
+			"target": {"x": seed_capsule.x, "y": seed_capsule.y, "r": 18.0} if seed_capsule != null else null,
+			"target2": null, "ghost": null, "from": null, "to": null,
+		}
 	return {
 		"stepId": "watch",
 		"label": "Sleduj okraj tmy" if hint_time != null else "Sleduj síť",
@@ -742,6 +933,11 @@ func poll_wows() -> Array:
 	_emit_wow("spore", "Výtrusný déšť", spore_time)
 	_emit_wow("join", "Spojení sítí", join_time)
 	_emit_wow("hint", "Cizí síť", hint_time)
+	_emit_wow("quarantine", "Karanténa", quarantine_time)
+	_emit_wow("skeleton", "Kostra stroje", skeleton_time)
+	_emit_wow("giant", "Obří plodnice", giant_time)
+	_emit_wow("seeds", "Tobolka", seeds_time)
+	_emit_wow("mvp", "Konec MVP", mvp_end_time)
 	if wow_queue.is_empty():
 		return []
 	var out = wow_queue.duplicate()
@@ -1131,8 +1327,39 @@ func update(dt: float) -> void:
 		network_bright = maxf(network_bright, heart_beat * 0.35)
 	if join_time != null and hint_time == null and time >= 595.0:
 		_trigger_hint()
-	if foreign_net > 0.0:
+	if hint_time != null and not invasion_active and time >= 620.0:
+		_begin_invasion()
+	if infected != null and not infected.dead:
+		infected.grey = minf(1.0, infected.grey + dt * 0.08)
+	if skeleton != null and skeleton.encircled and skeleton.decay < 1.0:
+		skeleton.decay = minf(1.0, skeleton.decay + dt / 10.0)
+	if network_gold > 0.0:
+		network_gold = maxf(0.35, network_gold - dt * 0.02)
+	## Age 3 hold on main fruit → giant fruiting body.
+	if skeleton_time != null and giant_time == null and dragging and time >= C.WOW_GIANT - 8.0:
+		var fp := _main_fruit_pos()
+		if _hypot(hx - fp.x, hy - fp.y) < fp.r * 1.6:
+			age3_hold_t += dt
+			if age3_hold_t >= C.HOLD_AGE3_S:
+				_trigger_giant()
+		else:
+			age3_hold_t = 0.0
+	else:
+		age3_hold_t = 0.0
+	if giant_fruit != null and giant_fruit.grow < 1.0:
+		giant_fruit.grow = minf(1.0, giant_fruit.grow + dt * 0.35)
+	if giant_time != null and seeds_time == null and time >= C.WOW_SEEDS - 2.0:
+		_trigger_seeds_hint()
+	if seeds_time != null and mvp_end_time == null and time >= C.WOW_END - 2.0:
+		_trigger_mvp_end()
+	if orbit_t > 0.0:
+		orbit_t += dt
+	if dim_all > 0.0 and mvp_end_time == null:
+		dim_all = minf(1.0, dim_all + dt * 0.15)
+	if foreign_net > 0.0 and quarantine_time == null and not invasion_active:
 		foreign_net = maxf(0.0, foreign_net - dt / C.HINT_DUR)
+	elif foreign_net > 0.0 and quarantine_time != null:
+		foreign_net = maxf(0.0, foreign_net - dt * 0.2)
 
 	var next: Array = []
 	for t in tips:
@@ -1263,6 +1490,11 @@ func metrics() -> Dictionary:
 		"sporeTime": spore_time,
 		"joinTime": join_time,
 		"hintTime": hint_time,
+		"quarantineTime": quarantine_time,
+		"skeletonTime": skeleton_time,
+		"giantTime": giant_time,
+		"seedsTime": seeds_time,
+		"mvpEndTime": mvp_end_time,
 	}
 
 
@@ -1289,6 +1521,10 @@ func snapshot() -> Dictionary:
 		"matters": matter_out,
 		"germs": germ_out,
 		"fruits": fruit_out,
+		"infected": {"x": infected.x, "y": infected.y, "r": infected.r, "dead": infected.dead} if infected != null else null,
+		"skeleton": {"x": skeleton.x, "y": skeleton.y, "r": skeleton.r, "encircled": skeleton.encircled} if skeleton != null else null,
+		"giantFruit": {"x": giant_fruit.x, "y": giant_fruit.y, "r": giant_fruit.r, "grow": giant_fruit.grow} if giant_fruit != null else null,
+		"seedCapsule": {"x": seed_capsule.x, "y": seed_capsule.y} if seed_capsule != null else null,
 	}
 
 
@@ -1341,6 +1577,33 @@ func bootstrap_start5() -> void:
 	for i in range(40):
 		_spawn_worker()
 	_spawn_matters()
+
+
+func bootstrap_start10() -> void:
+	bootstrap_start5()
+	## Fast-forward midgame markers so Age 3 content can start.
+	decay_time = C.WOW_DECAY
+	fruit_time = C.WOW_FRUIT
+	spore_time = C.WOW_SPORE
+	join_time = C.WOW_JOIN
+	_spawn_fruit_at(float(C.W) * 0.42, float(C.H) * 0.45)
+	_spawn_fruit_at(float(C.W) * 0.58, float(C.H) * 0.52)
+	for m in matters:
+		if m.kind != "fruit":
+			m.encircled = true
+			m.decay = 1.0
+	for i in range(C.SPORE_GERMS):
+		var a: float = (float(i) / float(C.SPORE_GERMS)) * PI * 2.0
+		germs.append({
+			"x": seed.x + cos(a) * 220.0,
+			"y": seed.y + sin(a) * 180.0,
+			"lit": 1.0,
+			"linked": true,
+		})
+	heart_beat = 0.7
+	time = C.START10_T
+	_trigger_hint()
+	_begin_invasion()
 
 
 func stress_fill(seg_count: int, worker_count: int) -> void:

@@ -23,6 +23,8 @@ var pan_last: Vector2 = Vector2.ZERO
 var zoom_target: float = 1.0
 var _drag: bool = false
 var atlas: Dictionary = {}
+var _orbit_done: bool = false
+var _other_planet_a: float = 0.0
 
 
 func _ready() -> void:
@@ -35,7 +37,10 @@ func _ready() -> void:
 	if OS.has_feature("web"):
 		demo_on = true
 	_try_load_atlas()
-	world = ApisWorld.new({"silent": true, "seed": 42})
+	var opts := {"silent": true, "seed": 42}
+	if "--start=10" in args or "start=10" in args:
+		opts["startAt"] = 600.0
+	world = ApisWorld.new(opts)
 	hud.visible = demo_on
 	camera.position = Iso.world_to_iso(float(C.W) * 0.5, float(C.H) * 0.48)
 	zoom_target = 1.0
@@ -69,17 +74,26 @@ func _process(dt: float) -> void:
 	if world == null:
 		return
 	world.update(dt * speed_mul)
-	var move := Vector2.ZERO
-	if Input.is_action_pressed("cam_left"):
-		move.x -= 1
-	if Input.is_action_pressed("cam_right"):
-		move.x += 1
-	if Input.is_action_pressed("cam_up"):
-		move.y -= 1
-	if Input.is_action_pressed("cam_down"):
-		move.y += 1
-	if move != Vector2.ZERO:
-		camera.position += move.normalized() * 420.0 * dt / maxf(camera.zoom.x, 0.2)
+	if world.mvp_end_time != null:
+		_other_planet_a = minf(1.0, _other_planet_a + dt * 0.35)
+		if world.orbit_t > 4.5 and not _orbit_done:
+			_orbit_done = true
+			get_tree().set_meta("swarm_grown_apis", true)
+			get_tree().set_meta("swarm_return_choose", true)
+			get_tree().change_scene_to_file("res://scenes/menu.tscn")
+			return
+	else:
+		var move := Vector2.ZERO
+		if Input.is_action_pressed("cam_left"):
+			move.x -= 1
+		if Input.is_action_pressed("cam_right"):
+			move.x += 1
+		if Input.is_action_pressed("cam_up"):
+			move.y -= 1
+		if Input.is_action_pressed("cam_down"):
+			move.y += 1
+		if move != Vector2.ZERO:
+			camera.position += move.normalized() * 420.0 * dt / maxf(camera.zoom.x, 0.2)
 	var z: float = zoom_target * world.cam_zoom
 	camera.zoom = camera.zoom.lerp(Vector2(z, z), 1.0 - exp(-dt * 3.0))
 	_refresh_hud()
@@ -265,15 +279,40 @@ func _draw_chambers() -> void:
 		var p: Vector2 = it.p
 		var grow: float = ch.grow
 		var half: float = C.HEX * 0.45 * (0.55 + grow * 0.45)
-		var h: float = half * 0.35 * world.hive_scale * (1.15 if world.floor2 else 1.0)
+		var floor_mul: float = 1.0
+		if world.floor3:
+			floor_mul = 1.35
+		elif world.floor2:
+			floor_mul = 1.15
+		var h: float = half * 0.35 * world.hive_scale * floor_mul
 		var base := Color(0.52, 0.5, 0.46, 0.55 + grow * 0.35)
 		if ch.amber > 0.05:
 			base = base.lerp(Color(0.72, 0.58, 0.28, 0.85), ch.amber * 0.55)
-		if world.rust_chamber != null and world._hex_key(ch.q, ch.r) == world.rust_chamber:
-			base = base.lerp(Color(0.55, 0.35, 0.25, 0.9), 0.45)
+		if world.brass_sheen > 0.0:
+			base = base.lerp(Color(0.78, 0.62, 0.32, 0.95), world.brass_sheen * 0.45)
+		if world.rust_chamber != null and world._hex_key(ch.q, ch.r) == world.rust_chamber and world.winter_time == null:
+			base = base.lerp(Color(0.55, 0.35, 0.25, 0.9), 0.45 + world.cold * 0.3)
 		_draw_box(p.x, p.y, half, base, h)
 	if world.core != null:
 		_draw_box(world.core.x, world.core.y, 10.0 * world.hive_scale, Color(0.58, 0.55, 0.48, 0.9), 8.0 + world.core_pulse * 4.0)
+	if world.rust_machine != null:
+		var rm = world.rust_machine
+		var rc := Color(0.5, 0.38, 0.3, 0.7) if not rm.looted else Color(0.45, 0.4, 0.35, 0.35)
+		_draw_box(rm.x, rm.y, rm.r * 0.45, rc, rm.r * 0.3)
+	if world.royal_cell != null:
+		var cell = world.royal_cell
+		var glow: float = cell.glow
+		var iso_c := Iso.world_to_iso(cell.x, cell.y)
+		draw_circle(iso_c, 8.0 + glow * 4.0, Color(0.95, 0.85, 0.45, 0.55 + glow * 0.4))
+		if cell.capped:
+			draw_arc(iso_c, 14.0, 0, TAU, 24, Color(1.0, 0.92, 0.55, 0.7 + cell.queen * 0.3), 2.0)
+	if world.mvp_end_time != null:
+		var vp := get_viewport_rect().size
+		var p2 := Vector2(vp.x * 0.22, vp.y * 0.2)
+		var tw: float = 0.4 + 0.6 * abs(sin(world.time * 2.5))
+		draw_circle(p2, 5.0, Color(0.4, 0.75, 0.5, _other_planet_a * tw))
+		draw_arc(p2, 10.0, 0, TAU, 20, Color(0.35, 0.7, 0.48, _other_planet_a * 0.45), 1.2)
+		draw_string(ThemeDB.fallback_font, Vector2(vp.x * 0.5 - 40, vp.y * 0.12), "SWARM", HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.9, 0.92, 0.88, minf(1.0, world.orbit_t * 0.25)))
 
 
 func _draw_flowers() -> void:
