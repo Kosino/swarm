@@ -1,0 +1,730 @@
+{
+  "1x": {
+    "apis2_louka_divoka_a": [
+      64.0,
+      32.0
+    ],
+    "apis2_louka_divoka_b": [
+      64.0,
+      32.0
+    ],
+    "apis2_louka_divoka_c": [
+      64.0,
+      32.0
+    ],
+    "apis2_louka_osazena_a": [
+      64.0,
+      32.0
+    ],
+    "apis2_louka_osazena_b": [
+      64.0,
+      32.0
+    ],
+    "apis2_louka_osazena_c": [
+      64.0,
+      32.0
+    ],
+    "apis2_louka_ziva_a": [
+      64.0,
+      32.0
+    ],
+    "apis2_louka_ziva_b": [
+      64.0,
+      32.0
+    ],
+    "apis2_louka_ziva_c": [
+      64.0,
+      32.0
+    ],
+    "apis2_overlay_kvet": [
+      64.0,
+      32.0
+    ],
+    "apis2_overlay_med": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_slaba_NE": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_slaba_SE": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_slaba_NW": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_slaba_SW": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_tip_slaba_NE": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_tip_slaba_SE": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_tip_slaba_NW": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_tip_slaba_SW": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_stredni_NE": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_stredni_SE": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_stredni_NW": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_stredni_SW": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_tip_stredni_NE": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_tip_stredni_SE": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_tip_stredni_NW": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_tip_stredni_SW": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_silna_NE": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_silna_SE": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_silna_NW": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_silna_SW": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_tip_silna_NE": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_tip_silna_SE": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_tip_silna_NW": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_tip_silna_SW": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_tip": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_uzel_slaba": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_vetveni_slaba": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_uzel_stredni": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_vetveni_stredni": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_uzel_silna": [
+      64.0,
+      32.0
+    ],
+    "apis2_feromon_vetveni_silna": [
+      64.0,
+      32.0
+    ],
+    "apis2_plast_rozestaveny": [
+      61.0,
+      123.0
+    ],
+    "apis2_plast_dostaveny": [
+      61.0,
+      123.0
+    ],
+    "apis2_plast_zarivy": [
+      61.0,
+      123.0
+    ],
+    "apis2_kamen_rozestaveny": [
+      56.0,
+      112.0
+    ],
+    "apis2_kamen_dostaveny": [
+      56.0,
+      112.0
+    ],
+    "apis2_kamen_zarivy": [
+      56.0,
+      112.0
+    ],
+    "apis2_ul_rozestaveny": [
+      76.0,
+      154.0
+    ],
+    "apis2_ul_dostaveny": [
+      76.0,
+      154.0
+    ],
+    "apis2_ul_zarivy": [
+      76.0,
+      154.0
+    ],
+    "apis2_stavitelka_NW": [
+      16.0,
+      25.0
+    ],
+    "apis2_stavitelka_NE": [
+      16.0,
+      25.0
+    ],
+    "apis2_stavitelka_SW": [
+      16.0,
+      25.0
+    ],
+    "apis2_stavitelka_SE": [
+      16.0,
+      25.0
+    ],
+    "apis2_stavitelka_neseni_NW": [
+      16.0,
+      25.0
+    ],
+    "apis2_stavitelka_neseni_NE": [
+      16.0,
+      25.0
+    ],
+    "apis2_stavitelka_neseni_SW": [
+      16.0,
+      25.0
+    ],
+    "apis2_stavitelka_neseni_SE": [
+      16.0,
+      25.0
+    ],
+    "apis2_letavka_NE": [
+      24.0,
+      48.0
+    ],
+    "apis2_letavka_NW": [
+      24.0,
+      48.0
+    ],
+    "apis2_letavka_SE": [
+      24.0,
+      48.0
+    ],
+    "apis2_letavka_SW": [
+      24.0,
+      48.0
+    ],
+    "apis2_fx_kapka_01": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_kapka_02": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_kapka_03": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_kapka_04": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_kapka_05": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_kapka_06": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_kapka_07": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_kapka_08": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_pyl_01": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_pyl_02": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_pyl_03": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_pyl_04": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_pyl_05": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_pyl_06": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_pyl_07": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_pyl_08": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_feromon_01": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_feromon_02": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_feromon_03": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_feromon_04": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_feromon_05": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_feromon_06": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_feromon_07": [
+      16.0,
+      16.0
+    ],
+    "apis2_fx_feromon_08": [
+      16.0,
+      16.0
+    ]
+  },
+  "2x": {
+    "apis2_louka_divoka_a_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_louka_divoka_b_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_louka_divoka_c_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_louka_osazena_a_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_louka_osazena_b_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_louka_osazena_c_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_louka_ziva_a_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_louka_ziva_b_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_louka_ziva_c_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_overlay_kvet_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_overlay_med_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_slaba_NE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_slaba_SE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_slaba_NW_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_slaba_SW_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_tip_slaba_NE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_tip_slaba_SE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_tip_slaba_NW_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_tip_slaba_SW_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_stredni_NE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_stredni_SE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_stredni_NW_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_stredni_SW_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_tip_stredni_NE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_tip_stredni_SE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_tip_stredni_NW_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_tip_stredni_SW_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_silna_NE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_silna_SE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_silna_NW_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_silna_SW_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_tip_silna_NE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_tip_silna_SE_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_tip_silna_NW_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_tip_silna_SW_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_tip_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_uzel_slaba_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_vetveni_slaba_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_uzel_stredni_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_vetveni_stredni_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_uzel_silna_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_feromon_vetveni_silna_2x": [
+      128.0,
+      64.0
+    ],
+    "apis2_plast_rozestaveny_2x": [
+      122.0,
+      246.0
+    ],
+    "apis2_plast_dostaveny_2x": [
+      122.0,
+      246.0
+    ],
+    "apis2_plast_zarivy_2x": [
+      122.0,
+      246.0
+    ],
+    "apis2_kamen_rozestaveny_2x": [
+      112.0,
+      224.0
+    ],
+    "apis2_kamen_dostaveny_2x": [
+      112.0,
+      224.0
+    ],
+    "apis2_kamen_zarivy_2x": [
+      112.0,
+      224.0
+    ],
+    "apis2_ul_rozestaveny_2x": [
+      152.0,
+      308.0
+    ],
+    "apis2_ul_dostaveny_2x": [
+      152.0,
+      308.0
+    ],
+    "apis2_ul_zarivy_2x": [
+      152.0,
+      308.0
+    ],
+    "apis2_stavitelka_NW_2x": [
+      32.0,
+      50.0
+    ],
+    "apis2_stavitelka_NE_2x": [
+      32.0,
+      50.0
+    ],
+    "apis2_stavitelka_SW_2x": [
+      32.0,
+      50.0
+    ],
+    "apis2_stavitelka_SE_2x": [
+      32.0,
+      50.0
+    ],
+    "apis2_stavitelka_neseni_NW_2x": [
+      32.0,
+      50.0
+    ],
+    "apis2_stavitelka_neseni_NE_2x": [
+      32.0,
+      50.0
+    ],
+    "apis2_stavitelka_neseni_SW_2x": [
+      32.0,
+      50.0
+    ],
+    "apis2_stavitelka_neseni_SE_2x": [
+      32.0,
+      50.0
+    ],
+    "apis2_letavka_NE_2x": [
+      48.0,
+      96.0
+    ],
+    "apis2_letavka_NW_2x": [
+      48.0,
+      96.0
+    ],
+    "apis2_letavka_SE_2x": [
+      48.0,
+      96.0
+    ],
+    "apis2_letavka_SW_2x": [
+      48.0,
+      96.0
+    ],
+    "apis2_fx_kapka_01_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_kapka_02_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_kapka_03_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_kapka_04_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_kapka_05_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_kapka_06_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_kapka_07_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_kapka_08_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_pyl_01_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_pyl_02_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_pyl_03_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_pyl_04_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_pyl_05_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_pyl_06_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_pyl_07_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_pyl_08_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_feromon_01_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_feromon_02_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_feromon_03_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_feromon_04_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_feromon_05_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_feromon_06_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_feromon_07_2x": [
+      32.0,
+      32.0
+    ],
+    "apis2_fx_feromon_08_2x": [
+      32.0,
+      32.0
+    ]
+  },
+  "stack_1x": {
+    "apis2_plast_rozestaveny": [
+      3.361558599568937,
+      -68.90857946508207
+    ],
+    "apis2_plast_dostaveny": [
+      3.2575720643398114,
+      -67.15560247675404
+    ],
+    "apis2_plast_zarivy": [
+      -2.8154045754422654,
+      -70.9484848493635
+    ]
+  },
+  "stack_2x": {
+    "apis2_plast_rozestaveny_2x": [
+      6.723117199137874,
+      -137.81715893016414
+    ],
+    "apis2_plast_dostaveny_2x": [
+      6.515144128679623,
+      -134.31120495350808
+    ],
+    "apis2_plast_zarivy_2x": [
+      -5.630809150884531,
+      -141.896969698727
+    ]
+  }
+}

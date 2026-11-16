@@ -1,11 +1,9 @@
 extends RefCounted
 class_name ApisIsoAtlas
-## Builds AtlasTexture resources (and pivot/offset) from godot_atlas.json.
-## Usage:
-##   var data := ApisIsoAtlas.load_all()
-##   ApisIsoAtlas.apply_to_sprite($Sprite2D, data["apis_iso_louka_a"])
+## AtlasTexture + pivot/offset (+ stack_offset on plast stages) from iso v2 godot_atlas.json.
+## FX: ApisIsoAtlas.load_sequences()
 
-const ROOT := "res://art/apis_iso_v1/"
+const ROOT := "res://art/apis_iso_v2/"
 const JSON_PATH := ROOT + "godot_atlas.json"
 
 
@@ -55,7 +53,20 @@ static func load_all(use_2x: bool = false) -> Dictionary:
 	return out
 
 
-## Assigns the atlas region and places the sprite so its pivot sits at Node2D.position.
+static func load_sequences(use_2x: bool = false) -> Dictionary:
+	var file := FileAccess.open(JSON_PATH, FileAccess.READ)
+	if file == null:
+		return {}
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	file.close()
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return {}
+	var key := "sequences_2x" if use_2x else "sequences"
+	if not parsed.has(key):
+		return {}
+	return parsed[key]
+
+
 static func apply_to_sprite(sprite: Sprite2D, entry: Dictionary) -> void:
 	sprite.texture = entry["texture"]
 	sprite.centered = false

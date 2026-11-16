@@ -1,4 +1,4 @@
-## Isometric Apis — atlas art v1 (grey fallback if atlas missing).
+## Isometric Apis — atlas art v2 (meadow / feromon / building stages + FX).
 extends Node2D
 
 const C = preload("res://apis/config.gd")
@@ -24,11 +24,15 @@ var pan_last: Vector2 = Vector2.ZERO
 var zoom_target: float = 1.0
 var _drag: bool = false
 var atlas: Dictionary = {}
+var sequences: Dictionary = {}
 var _use_2x: bool = false
 var _orbit_done: bool = false
 var _other_planet_a: float = 0.0
 var _autosave_cd: float = 60.0
 var _run_seed: int = 42
+var _fx: Array = [] ## {seq, x, y, t, life}
+var _prev_core_pulse: float = 0.0
+var _prev_highway: float = 0.0
 
 
 func _ready() -> void:
@@ -42,6 +46,7 @@ func _ready() -> void:
 		demo_on = true
 	_use_2x = DisplayServer.screen_get_scale() >= 1.5
 	atlas = Atlas.load_all(_use_2x)
+	sequences = Atlas.load_sequences(_use_2x)
 	_run_seed = 42
 	var opts := {"silent": false, "seed": _run_seed}
 	var resume_t: float = -1.0
@@ -111,6 +116,7 @@ func _process(dt: float) -> void:
 	if _autosave_cd <= 0.0:
 		_autosave_cd = 60.0
 		_autosave()
+	_tick_fx(dt)
 	if world.mvp_end_time != null:
 		_other_planet_a = minf(1.0, _other_planet_a + dt * 0.35)
 		if world.orbit_t > 4.5 and not _orbit_done:
@@ -219,6 +225,66 @@ func _screen_to_world(screen: Vector2) -> Vector2:
 	return Iso.iso_to_world(canvas.x, canvas.y)
 
 
+func _hive() -> Vector2:
+	if world.core != null:
+		return Vector2(world.core.x, world.core.y)
+	return Vector2(world.cx, world.cy)
+
+
+func _visual_reach() -> float:
+	var base: float = 100.0 + float(world.chambers.size()) * 6.5 + float(world.trails.size()) * 28.0 + world.time * 0.2
+	if world.meadow2 != null:
+		base += 70.0
+	if world.second_hive != null:
+		base += 90.0
+	return clampf(base, 100.0, 540.0)
+
+
+func _terrain_stage(wx: float, wy: float) -> String:
+	var hive := _hive()
+	var d: float = hive.distance_to(Vector2(wx, wy))
+	var reach: float = _visual_reach()
+	if d > reach * 1.05:
+		return "divoka"
+	if d > reach * 0.52:
+		return "osazena"
+	return "ziva"
+
+
+func _intensity(glow: float) -> String:
+	if glow < 0.35:
+		return "slaba"
+	if glow < 0.7:
+		return "stredni"
+	return "silna"
+
+
+func _spawn_fx(seq: String, x: float, y: float, life: float = 1.0) -> void:
+	if not sequences.has(seq):
+		return
+	_fx.append({"seq": seq, "x": x, "y": y, "t": 0.0, "life": life})
+
+
+func _tick_fx(dt: float) -> void:
+	if world.core_pulse > _prev_core_pulse + 0.35:
+		var h := _hive()
+		_spawn_fx("apis2_fx_kapka", h.x, h.y, 1.0)
+		_spawn_fx("apis2_fx_pyl", h.x + 10.0, h.y - 6.0, 1.1)
+		_spawn_fx("apis2_fx_feromon", h.x, h.y + 8.0, 0.95)
+	if world.highway_glow > _prev_highway + 0.35:
+		var h2 := _hive()
+		_spawn_fx("apis2_fx_feromon", h2.x, h2.y, 1.0)
+		_spawn_fx("apis2_fx_pyl", h2.x - 8.0, h2.y + 6.0, 1.05)
+	_prev_core_pulse = world.core_pulse
+	_prev_highway = world.highway_glow
+	var i := _fx.size() - 1
+	while i >= 0:
+		_fx[i].t += dt
+		if _fx[i].t >= _fx[i].life:
+			_fx.remove_at(i)
+		i -= 1
+
+
 func _draw() -> void:
 	if world == null:
 		return
@@ -226,11 +292,10 @@ func _draw() -> void:
 	_draw_routes_trails()
 	_draw_chambers()
 	_draw_flowers()
+	_draw_builders()
 	_draw_workers()
+	_draw_fx()
 	_draw_guidance()
-	if world.dusk > 0.05 and atlas.has("apis_iso_overlay_soumrak_rez"):
-		## Soft dusk wash via overlay sprite at hive.
-		_blit("apis_iso_overlay_soumrak_rez", world.cx, world.cy, 0.55 if not _use_2x else 0.28, Color(1, 1, 1, 0.25 + world.dusk * 0.35))
 
 
 func _blit(name: String, world_x: float, world_y: float, scale: float = 1.0, modulate: Color = Color.WHITE, extra_off: Vector2 = Vector2.ZERO) -> void:
@@ -266,17 +331,17 @@ func _draw_meadow() -> void:
 	var tile: float = float(C.MEADOW_TILE)
 	var cols: int = world.meadow_cols
 	var rows: int = world.meadow_rows
-	var names := ["apis_iso_louka_a", "apis_iso_louka_b", "apis_iso_louka_c"]
+	var sc: float = 0.5 if not _use_2x else 0.25
 	for ty in range(rows):
 		for tx in range(cols):
 			var wx: float = (float(tx) + 0.5) * tile
 			var wy: float = (float(ty) + 0.5) * tile
 			var idx: int = (ty * cols + tx) % 3
-			var n: String = names[idx]
-			if world.dusk > 0.45 and atlas.has("apis_iso_louka_odkvetla"):
-				n = "apis_iso_louka_odkvetla"
+			var variant: String = ["a", "b", "c"][idx]
+			var stage: String = _terrain_stage(wx, wy)
+			var n := "apis2_louka_%s_%s" % [stage, variant]
 			if atlas.has(n):
-				_blit(n, wx, wy, 0.5 if not _use_2x else 0.25)
+				_blit(n, wx, wy, sc)
 			else:
 				var iso := Iso.world_to_iso(wx, wy)
 				var shade := 0.72 - 0.04 * float(idx) - world.dusk * 0.12
@@ -284,10 +349,14 @@ func _draw_meadow() -> void:
 					_diamond_at(iso, tile * 0.55, tile * 0.28),
 					Color(shade, shade * 0.98, shade * 0.9, 1.0)
 				)
+			if stage == "ziva" and atlas.has("apis2_overlay_kvet"):
+				_blit("apis2_overlay_kvet", wx, wy, sc * 0.9, Color(1, 1, 1, 0.2 + world.meadow_bloom * 0.25))
 	if world.meadow2 != null:
 		var m2 = world.meadow2
-		if atlas.has("apis_iso_louka_kvetouci"):
-			_blit("apis_iso_louka_kvetouci", m2.x, m2.y, 0.55 if not _use_2x else 0.28, Color(1, 1, 1, 0.7 + world.meadow_bloom * 0.3))
+		if atlas.has("apis2_overlay_kvet"):
+			_blit("apis2_overlay_kvet", m2.x, m2.y, 0.55 if not _use_2x else 0.28, Color(1, 1, 1, 0.7 + world.meadow_bloom * 0.3))
+		elif atlas.has("apis2_louka_ziva_a"):
+			_blit("apis2_louka_ziva_a", m2.x, m2.y, 0.55 if not _use_2x else 0.28, Color(1, 1, 1, 0.7 + world.meadow_bloom * 0.3))
 		else:
 			var c := Iso.world_to_iso(m2.x, m2.y)
 			draw_circle(c, 28.0 + world.meadow_bloom * 8.0, Color(0.7, 0.62, 0.35, 0.22 + world.meadow_bloom * 0.2))
@@ -305,9 +374,7 @@ func _feromon_dir(dx: float, dy: float) -> String:
 
 
 func _draw_routes_trails() -> void:
-	var hc := Vector2(world.cx, world.cy)
-	if world.core != null:
-		hc = Vector2(world.core.x, world.core.y)
+	var hc := _hive()
 	for rt in world.routes:
 		if rt.flower < 0 or rt.flower >= world.flowers.size():
 			continue
@@ -318,23 +385,29 @@ func _draw_routes_trails() -> void:
 	for tr in world.trails:
 		if tr.pts.size() < 2:
 			continue
+		var gold: float = world.highway_glow if tr.kind in ["join", "highway"] else tr.glow
+		var inten := _intensity(gold)
 		for i in range(1, tr.pts.size()):
 			var p0 = tr.pts[i - 1]
 			var p1 = tr.pts[i]
 			var dir := _feromon_dir(p1.x - p0.x, p1.y - p0.y)
-			var fname := "apis_iso_feromon_%s" % dir
-			if not atlas.has(fname):
-				fname = "apis_iso_feromon_SE" if atlas.has("apis_iso_feromon_SE") else "apis_iso_feromon_NE"
-			var gold: float = world.highway_glow if tr.kind in ["join", "highway"] else tr.glow
+			var fname := "apis2_feromon_%s_%s" % [inten, dir]
 			if atlas.has(fname):
-				_blit(fname, (p0.x + p1.x) * 0.5, (p0.y + p1.y) * 0.5, 0.28 if not _use_2x else 0.14, Color(1, 1, 1, 0.35 + gold * 0.45))
+				_blit(fname, (p0.x + p1.x) * 0.5, (p0.y + p1.y) * 0.5, 0.28 if not _use_2x else 0.14, Color(1, 1, 1, 0.4 + gold * 0.45))
 			else:
 				var a2 := Iso.world_to_iso(p0.x, p0.y)
 				var b2 := Iso.world_to_iso(p1.x, p1.y)
-				draw_line(a2, b2, Color(0.72, 0.58, 0.28, 0.3 + gold * 0.4), 2.4, true)
-		if atlas.has("apis_iso_feromon_tip"):
-			var last = tr.pts[tr.pts.size() - 1]
-			_blit("apis_iso_feromon_tip", last.x, last.y, 0.3 if not _use_2x else 0.15)
+				draw_line(a2, b2, Color(0.85, 0.65, 0.25, 0.3 + gold * 0.4), 2.4, true)
+		var last = tr.pts[tr.pts.size() - 1]
+		var prev = tr.pts[tr.pts.size() - 2]
+		var tip := "apis2_feromon_tip_%s_%s" % [inten, _feromon_dir(last.x - prev.x, last.y - prev.y)]
+		if not atlas.has(tip):
+			tip = "apis2_feromon_tip"
+		if atlas.has(tip):
+			_blit(tip, last.x, last.y, 0.3 if not _use_2x else 0.15)
+		if atlas.has("apis2_feromon_uzel_%s" % inten) and tr.pts.size() > 2:
+			var mid = tr.pts[tr.pts.size() / 2]
+			_blit("apis2_feromon_uzel_%s" % inten, mid.x, mid.y, 0.22 if not _use_2x else 0.11, Color(1, 1, 1, 0.5 + gold * 0.3))
 	if world.stroke_active:
 		for i in range(1, world.stroke_pts.size()):
 			var a3 := Iso.world_to_iso(world.stroke_pts[i - 1].x, world.stroke_pts[i - 1].y)
@@ -345,18 +418,28 @@ func _draw_routes_trails() -> void:
 		var a4 := Iso.world_to_iso(hc.x, hc.y)
 		var b4 := Iso.world_to_iso(sh.x, sh.y)
 		draw_line(a4, b4, Color(0.72, 0.58, 0.28, 0.25 + world.highway_glow * 0.35), 2.6, true)
-		if atlas.has("apis_iso_ul_2"):
-			_blit("apis_iso_ul_2", sh.x, sh.y, 0.35 if not _use_2x else 0.18, Color(1, 1, 1, 0.75 + sh.pulse * 0.2))
+		var uln := "apis2_ul_zarivy" if sh.pulse > 0.4 or world.highway_glow > 0.5 else "apis2_ul_dostaveny"
+		if atlas.has(uln):
+			_blit(uln, sh.x, sh.y, 0.35 if not _use_2x else 0.18, Color(1, 1, 1, 0.75 + sh.pulse * 0.2))
 		else:
-			_draw_box(sh.x, sh.y, 14.0, Color(0.55, 0.52, 0.46, 0.75), 10.0 + sh.pulse * 4.0)
-	if world.swarm_time != null and atlas.has("apis_iso_roj"):
-		_blit("apis_iso_roj", hc.x, hc.y - 40.0, 0.4 if not _use_2x else 0.2, Color(1, 1, 1, 0.35 + world.highway_glow * 0.25))
+			_draw_box(sh.x, sh.y, 14.0, Color(0.7, 0.55, 0.35, 0.75), 10.0 + sh.pulse * 4.0)
+	if world.swarm_time != null and atlas.has("apis2_overlay_med"):
+		_blit("apis2_overlay_med", hc.x, hc.y - 40.0, 0.4 if not _use_2x else 0.2, Color(1, 1, 1, 0.35 + world.highway_glow * 0.25))
+
+
+func _plast_stage(ch: Dictionary) -> String:
+	if world.brass_sheen > 0.25 or ch.amber > 0.45 or world.core_pulse > 0.55:
+		return "zarivy"
+	if ch.grow >= 1.0:
+		return "dostaveny"
+	return "rozestaveny"
 
 
 func _draw_chambers() -> void:
 	if not world.planted:
-		if atlas.has("apis_iso_zakladaci_kamen"):
-			_blit("apis_iso_zakladaci_kamen", world.cx, world.cy, 0.45 if not _use_2x else 0.22, Color(1, 1, 1, 0.55 + world.pulse_hex_glow * 0.35))
+		var kn := "apis2_kamen_zarivy" if world.pulse_hex_glow > 0.7 else "apis2_kamen_rozestaveny"
+		if atlas.has(kn):
+			_blit(kn, world.cx, world.cy, 0.45 if not _use_2x else 0.22, Color(1, 1, 1, 0.55 + world.pulse_hex_glow * 0.35))
 		else:
 			_draw_box(world.cx, world.cy, C.HEX * 0.55, Color(0.62, 0.6, 0.55, 0.55 + world.pulse_hex_glow * 0.25))
 		return
@@ -372,6 +455,8 @@ func _draw_chambers() -> void:
 		var ch = it.ch
 		var p: Vector2 = it.p
 		var grow: float = ch.grow
+		var stage := _plast_stage(ch)
+		var pname := "apis2_plast_%s" % stage
 		var mod := Color(1, 1, 1, 0.45 + grow * 0.5)
 		if ch.amber > 0.05:
 			mod = mod.lerp(Color(1.0, 0.85, 0.45, 0.95), ch.amber * 0.4)
@@ -379,25 +464,35 @@ func _draw_chambers() -> void:
 			mod = mod.lerp(Color(1.0, 0.88, 0.5, 1.0), world.brass_sheen * 0.35)
 		if world.rust_chamber != null and world._hex_key(ch.q, ch.r) == world.rust_chamber and world.winter_time == null:
 			mod = mod.lerp(Color(0.85, 0.45, 0.3, 0.95), 0.45 + world.cold * 0.3)
-		if atlas.has("apis_iso_plast_p1"):
-			_blit("apis_iso_plast_p1", p.x, p.y, sc * (0.7 + grow * 0.3), mod)
-			if (world.floor2 or world.floor3) and atlas.has("apis_iso_plast_p2"):
+		if atlas.has(pname):
+			var psz: float = sc * (0.7 + grow * 0.3)
+			_blit(pname, p.x, p.y, psz, mod)
+			if (world.floor2 or world.floor3):
 				var stack: Vector2 = Vector2.ZERO
-				var e1: Dictionary = atlas["apis_iso_plast_p1"]
+				var e1: Dictionary = atlas[pname]
 				if e1.has("stack_offset"):
-					stack = e1.stack_offset * sc * (0.7 + grow * 0.3)
-				_blit("apis_iso_plast_p2", p.x, p.y, sc * (0.7 + grow * 0.3), mod, stack)
-				if world.floor3:
-					_blit("apis_iso_plast_p2", p.x, p.y, sc * (0.7 + grow * 0.3), mod, stack * 1.85)
+					stack = e1.stack_offset * psz
+				elif atlas.has("apis2_plast_dostaveny") and atlas["apis2_plast_dostaveny"].has("stack_offset"):
+					stack = atlas["apis2_plast_dostaveny"].stack_offset * psz
+				var upper := "apis2_plast_zarivy" if stage == "zarivy" else "apis2_plast_dostaveny"
+				if atlas.has(upper):
+					_blit(upper, p.x, p.y, psz, mod, stack)
+					if world.floor3:
+						_blit(upper, p.x, p.y, psz, mod, stack * 1.85)
 		else:
 			var half: float = C.HEX * 0.45 * (0.55 + grow * 0.45)
 			var floor_mul: float = 1.35 if world.floor3 else (1.15 if world.floor2 else 1.0)
-			_draw_box(p.x, p.y, half, Color(0.52, 0.5, 0.46, 0.55 + grow * 0.35), half * 0.35 * world.hive_scale * floor_mul)
+			_draw_box(p.x, p.y, half, Color(0.7, 0.55, 0.35, 0.55 + grow * 0.35), half * 0.35 * world.hive_scale * floor_mul)
 	if world.core != null:
-		if atlas.has("apis_iso_ul_2"):
-			_blit("apis_iso_ul_2", world.core.x, world.core.y, 0.42 if not _use_2x else 0.21, Color(1, 1, 1, 0.85 + world.core_pulse * 0.15))
+		var ul := "apis2_ul_zarivy" if world.core_pulse > 0.4 or world.brass_sheen > 0.3 else "apis2_ul_dostaveny"
+		if world.time < 90.0 and world.chambers.size() < 4:
+			ul = "apis2_ul_rozestaveny"
+		if atlas.has(ul):
+			_blit(ul, world.core.x, world.core.y, 0.42 if not _use_2x else 0.21, Color(1, 1, 1, 0.85 + world.core_pulse * 0.15))
 		else:
-			_draw_box(world.core.x, world.core.y, 10.0 * world.hive_scale, Color(0.58, 0.55, 0.48, 0.9), 8.0 + world.core_pulse * 4.0)
+			_draw_box(world.core.x, world.core.y, 10.0 * world.hive_scale, Color(0.75, 0.55, 0.35, 0.9), 8.0 + world.core_pulse * 4.0)
+		if atlas.has("apis2_overlay_med") and world.core_pulse > 0.2:
+			_blit("apis2_overlay_med", world.core.x, world.core.y, 0.35 if not _use_2x else 0.18, Color(1, 1, 1, 0.25 + world.core_pulse * 0.35))
 	if world.rust_machine != null:
 		var rm = world.rust_machine
 		var rc := Color(0.5, 0.38, 0.3, 0.7) if not rm.looted else Color(0.45, 0.4, 0.35, 0.35)
@@ -425,8 +520,8 @@ func _draw_flowers() -> void:
 			_draw_box(f.x, f.y, f.r * 0.45, Color(0.62, 0.55, 0.35, 0.75), f.r * 0.35)
 			if world.tree_attract:
 				draw_arc(iso, f.r * 0.5 + 8.0 + world.tree_attract_pulse * 6.0, 0, TAU, 28, Color(0.7, 0.6, 0.3, 0.25 + world.tree_attract_pulse * 0.3), 1.4)
-		elif atlas.has("apis_iso_louka_kvetouci"):
-			_blit("apis_iso_louka_kvetouci", f.x, f.y, 0.22 if not _use_2x else 0.11, Color(1, 1, 1, 0.55 + f.bloom * 0.4))
+		elif atlas.has("apis2_overlay_kvet"):
+			_blit("apis2_overlay_kvet", f.x, f.y, 0.22 if not _use_2x else 0.11, Color(1, 1, 1, 0.55 + f.bloom * 0.4))
 		else:
 			var br: float = f.r * (0.55 + f.bloom * 0.35)
 			draw_colored_polygon(_diamond_at(iso, br, br * 0.55), Color(0.55, 0.55, 0.5, 0.7 + f.bloom * 0.2))
@@ -443,6 +538,25 @@ func _bee_dir(dx: float, dy: float) -> String:
 	return "NW"
 
 
+func _draw_builders() -> void:
+	## Visual-only stavitelky ferrying wax to growing chambers.
+	var hive := _hive()
+	var sc: float = 0.42 if not _use_2x else 0.21
+	for ch in world.chambers.values():
+		if ch.grow >= 1.0:
+			continue
+		var p: Vector2 = world._axial_to_pixel(ch.q, ch.r)
+		var t: float = fmod(world.time * 0.55 + float(ch.q) * 0.17 + float(ch.r) * 0.13, 1.0)
+		var bx: float = lerpf(hive.x, p.x, t)
+		var by: float = lerpf(hive.y, p.y, t)
+		var dir := _bee_dir(p.x - hive.x, p.y - hive.y)
+		var name := "apis2_stavitelka_neseni_%s" % dir
+		if not atlas.has(name):
+			name = "apis2_stavitelka_%s" % dir
+		if atlas.has(name):
+			_blit(name, bx, by, sc)
+
+
 func _draw_workers() -> void:
 	for w in world.workers:
 		var dir := "SE"
@@ -451,15 +565,35 @@ func _draw_workers() -> void:
 			dir = _bee_dir(f.x - w.x, f.y - w.y)
 		elif not w.outbound:
 			dir = _bee_dir(world.cx - w.x, world.cy - w.y)
-		var name := "apis_iso_vcela_let_%s" % dir
+		## Carrying nectar uses letavka (same bee) — pollen FX marks cargo; keep sprite readable.
+		var name := "apis2_letavka_%s" % dir
 		if not atlas.has(name):
-			name = "apis_iso_vcela_let_SE"
+			name = "apis2_letavka_SE"
 		if atlas.has(name):
 			_blit(name, w.x, w.y, 0.45 if not _use_2x else 0.22)
+			if w.carrying and atlas.has("apis2_overlay_med"):
+				_blit("apis2_overlay_med", w.x, w.y, 0.18 if not _use_2x else 0.09, Color(1, 1, 1, 0.55))
 		else:
 			var iso := Iso.world_to_iso(w.x, w.y)
 			var col := Color(0.85, 0.75, 0.35, 0.95) if w.carrying else Color(0.45, 0.42, 0.38, 0.9)
 			draw_circle(iso, 2.2, col)
+
+
+func _draw_fx() -> void:
+	var sc: float = 0.55 if not _use_2x else 0.28
+	for fx in _fx:
+		var seq_name: String = fx.seq
+		if not sequences.has(seq_name):
+			continue
+		var seq: Dictionary = sequences[seq_name]
+		var frames: Array = seq.get("frames", [])
+		if frames.is_empty():
+			continue
+		var fps: float = float(seq.get("fps", 8))
+		var idx: int = int(floor(fx.t * fps)) % frames.size()
+		var frame: String = str(frames[idx])
+		var alpha: float = 0.9 * (1.0 - fx.t / maxf(fx.life, 0.01))
+		_blit(frame, fx.x, fx.y, sc, Color(1.35, 1.25, 1.05, alpha))
 
 
 func _draw_guidance() -> void:
