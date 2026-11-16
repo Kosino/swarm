@@ -875,32 +875,49 @@ func _kotva_stage(p: Dictionary) -> String:
 	return "rozestavena"
 
 
+func _node_role(node: Dictionary, fallback: String) -> String:
+	return str(node.get("role", fallback))
+
+
 func _draw_entities() -> void:
 	var dim: float = 1.0
 	if world.dim_all > 0.0:
 		dim = maxf(0.15, 1.0 - world.dim_all * 0.85)
+	var mite_grey: float = world.mite_pressure if world.quarantine_time == null else 0.0
 	for p in world.patches:
 		if not p.on and p.lit < 0.05 and not p.get("big", false):
 			continue
 		if not SwarmGfx.iso_in_view(Iso.world_to_iso(p.x, p.y), _view):
 			continue
 		var stage := _kotva_stage(p)
+		var prole := _node_role(p, "anchor")
+		## Age-3 / late mid-game building variety from existing atlas.
+		if prole == "depot":
+			stage = "zariva"
 		var name := "myc2_kotva_%s" % stage
 		var sc := 0.55 if p.get("big", false) else 0.4
+		if prole == "depot":
+			sc *= 1.12
 		if _use_2x:
 			sc *= 0.5
 		if SwarmGfx.soft_shadows():
 			_draw_soft_shadow(p.x, p.y, 14.0 if p.get("big", false) else 9.0, 0.22 + p.lit * 0.12)
+		var pmod := Color(1, 1, 1, 0.55 + p.lit * 0.4)
+		if prole == "depot":
+			pmod = pmod.lerp(Color(1.25, 1.15, 0.55, 1.0), 0.35 + p.lit * 0.2)
+		if mite_grey > 0.2:
+			pmod = pmod.lerp(Color(0.55, 0.6, 0.5, 0.9), mite_grey * 0.25)
 		if atlas.has(name):
-			_blit(name, p.x, p.y, sc, Color(1, 1, 1, 0.55 + p.lit * 0.4))
+			_blit(name, p.x, p.y, sc, pmod)
 			## Soft zariva bloom only — never prorust hatch overlays.
-			if stage == "zariva" and atlas.has("myc2_overlay_zare") and p.lit > 0.7 and SwarmGfx.q_level() == 0:
-				_blit("myc2_overlay_zare", p.x, p.y, sc * 0.7, Color(1.1, 1.25, 1.05, 0.08 + p.lit * 0.06))
+			if (stage == "zariva" or prole == "depot") and atlas.has("myc2_overlay_zare") and p.lit > 0.55 and SwarmGfx.q_level() == 0:
+				_blit("myc2_overlay_zare", p.x, p.y, sc * 0.75, Color(1.15, 1.3, 0.85, 0.1 + p.lit * 0.08))
 		else:
 			_draw_box_fallback(p.x, p.y, p.r * 0.7, Color(0.35, 0.7, 0.45, 0.85))
 
 	for m in world.matters:
 		var name := ""
+		var mrole := _node_role(m, "fruit" if String(m.kind) == "fruit" else String(m.kind))
 		match String(m.kind):
 			"machine", "beetle":
 				## No dedicated v2 husks — reuse plodnice stages as organic overgrowth markers.
@@ -909,30 +926,52 @@ func _draw_entities() -> void:
 				else:
 					name = "myc2_plodnice_rozestavena"
 			"fruit":
-				if world.network_bright > 0.5 or world.spore_time != null:
+				if mrole == "sporangium" or world.network_bright > 0.5 or world.spore_time != null:
 					name = "myc2_plodnice_zariva"
 				elif m.encircled or world.fruit_time != null:
 					name = "myc2_plodnice_dorostla"
 				else:
 					name = "myc2_plodnice_rozestavena"
 		var sc := 0.45
+		if mrole == "sporangium":
+			sc *= 1.12
 		if _use_2x:
 			sc *= 0.5
 		var alpha := 1.0 - float(m.decay) * 0.35
+		var mmod := Color(1, 1, 1, alpha)
+		if mrole == "sporangium":
+			mmod = mmod.lerp(Color(1.2, 1.35, 0.85, alpha), 0.35)
+		if mite_grey > 0.2 and String(m.kind) == "fruit":
+			mmod = mmod.lerp(Color(0.6, 0.65, 0.5, alpha), mite_grey * 0.2)
 		if name != "" and atlas.has(name):
-			_blit(name, m.x, m.y, sc, Color(1, 1, 1, alpha))
+			_blit(name, m.x, m.y, sc, mmod)
+			if mrole == "sporangium" and atlas.has("myc2_overlay_zare"):
+				_blit("myc2_overlay_zare", m.x, m.y - 6.0, sc * 0.8, Color(1.15, 1.35, 0.9, 0.12 + world.network_bright * 0.1))
 		else:
 			_draw_box_fallback(m.x, m.y, m.r * 0.55, Color(0.4, 0.65, 0.45, 0.7 * alpha))
 
 	for g in world.germs:
+		var grole := _node_role(g, "germ")
 		var gstage := "rozestavena"
-		if g.linked or g.lit > 0.4:
+		if g.linked or g.lit > 0.4 or grole == "nursery" or grole == "depot":
 			gstage = "dorostla"
-		if g.lit > 0.75 or world.network_bright > 0.6:
+		if g.lit > 0.75 or world.network_bright > 0.6 or grole == "nursery":
 			gstage = "zariva"
+		## Depot germs read as nutrient stores via kotva; nursery keeps zarodek.
 		var gname := "myc2_zarodek_%s" % gstage
+		var gsc := 0.22 if not _use_2x else 0.11
+		var gmod := Color(0.85, 0.95, 0.8, 0.7 + g.lit * 0.3)
+		if grole == "depot":
+			gname = "myc2_kotva_%s" % ("zariva" if g.lit > 0.6 else "dorostla")
+			gsc = 0.32 if not _use_2x else 0.16
+			gmod = Color(1.2, 1.1, 0.55, 0.75 + g.lit * 0.25)
+		elif grole == "nursery":
+			gsc *= 1.25
+			gmod = gmod.lerp(Color(1.05, 1.2, 1.15, 1.0), 0.35 + g.lit * 0.2)
 		if atlas.has(gname):
-			_blit(gname, g.x, g.y, 0.22 if not _use_2x else 0.11, Color(0.85, 0.95, 0.8, 0.7 + g.lit * 0.3))
+			_blit(gname, g.x, g.y, gsc, gmod)
+			if (grole == "nursery" or grole == "depot") and atlas.has("myc2_overlay_zare"):
+				_blit("myc2_overlay_zare", g.x, g.y, gsc * 0.85, Color(1.1, 1.25, 0.95, 0.12 + g.lit * 0.1))
 		else:
 			draw_circle(Iso.world_to_iso(g.x, g.y), 4.0, Color(0.45, 0.85, 0.55, 0.8))
 
@@ -1003,6 +1042,26 @@ func _draw_entities() -> void:
 			draw_line(a, b, Color(0.55, 0.85, 0.65, 0.28), 1.6, true)
 
 	## Build 13: no matter-site prorust hatch overlays.
+
+	## Mid-game mite nest (GDD Invaze roztočů) — pro_v3 beetle + tiny grey workers.
+	if world.mite_nest != null and not world.mite_purged and world.quarantine_time == null:
+		var nest = world.mite_nest
+		var nest_a: float = 0.55 + world.mite_pressure * 0.35
+		if ProArt.has(pro, "myc_infected_beetle"):
+			ProArt.blit(
+				self, pro, "myc_infected_beetle",
+				Iso.world_to_iso(nest.x, nest.y),
+				0.28 if not _use_2x else 0.14,
+				Color(0.75, 0.7, 0.55, nest_a)
+			)
+		elif atlas.has("myc2_plodnice_rozestavena"):
+			_blit("myc2_plodnice_rozestavena", nest.x, nest.y, 0.28 if not _use_2x else 0.14, Color(0.55, 0.5, 0.4, nest_a))
+		for mite in world.mites:
+			var msc: float = 0.18 if not _use_2x else 0.09
+			if atlas.has("myc2_delnik_SE"):
+				_blit("myc2_delnik_SE", mite.x, mite.y, msc, Color(0.55, 0.5, 0.4, 0.55 + world.mite_pressure * 0.3))
+			else:
+				draw_circle(Iso.world_to_iso(mite.x, mite.y), float(mite.r) * 0.35, Color(0.5, 0.45, 0.35, 0.7))
 
 	## Age 3 — pro_v3 sprites (no procedural boxes when pack present).
 	if world.infected != null:

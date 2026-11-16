@@ -63,6 +63,11 @@ var fruit_time: Variant = null
 var spore_time: Variant = null
 var join_time: Variant = null
 var hint_time: Variant = null
+var mite_time: Variant = null
+var mite_purged: bool = false
+var mite_pressure: float = 0.0 ## 0..1 grey / slow intensity
+var mite_nest: Variant = null ## {x,y,r}
+var mites: Array = [] ## small parasites on hyphae near nest
 var quarantine_time: Variant = null
 var skeleton_time: Variant = null
 var giant_time: Variant = null
@@ -82,6 +87,8 @@ var orbit_t: float = 0.0
 var dim_all: float = 0.0
 var age3_hold_t: float = 0.0
 var invasion_active: bool = false
+var buildings_specialized: bool = false
+var worker_slow: float = 1.0
 
 var idle_t: float = 0.0
 var show_ghost: bool = false
@@ -159,7 +166,10 @@ func _bootstrap_world() -> void:
 				ok = false
 				break
 		if ok:
-			patches.append({"x": x, "y": y, "r": r, "lit": 0.0, "on": false, "ph": _rnd() * 6.0, "big": false})
+			patches.append({
+				"x": x, "y": y, "r": r, "lit": 0.0, "on": false,
+				"ph": _rnd() * 6.0, "big": false, "role": C.ROLE_ANCHOR,
+			})
 	specks.clear()
 	for _i in range(120):
 		specks.append({
@@ -250,10 +260,11 @@ func _spawn_matters() -> void:
 	})
 
 
-func _spawn_fruit_at(x: float, y: float) -> void:
+func _spawn_fruit_at(x: float, y: float, role: String = "") -> void:
 	matters.append({
 		"x": x, "y": y - 8.0, "r": 22.0, "kind": "fruit",
 		"decay": 0.0, "encircled": false, "ph": _rnd() * 6.0,
+		"role": role if role != "" else C.ROLE_FRUIT,
 	})
 
 
@@ -360,8 +371,12 @@ func _trigger_spore() -> void:
 			gy = cy0 + sin(a) * d * 0.85
 			if gx > 50.0 and gx < float(C.W) - 50.0 and gy > 50.0 and gy < float(C.H) - 50.0:
 				break
-		germs.append({"x": gx, "y": gy, "lit": 0.0, "linked": false})
+		germs.append({"x": gx, "y": gy, "lit": 0.0, "linked": false, "role": C.ROLE_GERM})
+	for f in fruits:
+		if str(f.get("role", C.ROLE_FRUIT)) == C.ROLE_FRUIT:
+			f.role = C.ROLE_SPORANGIUM
 	rings.append({"x": fruits[0].x, "y": fruits[0].y, "t": 0.0, "big": true})
+	_specialize_buildings()
 
 
 func _trigger_join() -> void:
@@ -389,6 +404,86 @@ func _trigger_join() -> void:
 		_add_tip(g.x, g.y, _rnd() * PI * 2.0, prev)
 	var net = _whole_network_path(seed.x, seed.y)
 	pulses.append({"path": net, "t": 0.0, "dur": 1.2 + float(net.size()) * 0.002})
+	_specialize_buildings()
+
+
+func _node_dist_from_seed(x: float, y: float) -> float:
+	if seed == null:
+		return 0.0
+	return _hypot(x - seed.x, y - seed.y)
+
+
+func _specialize_buildings(force_depots: bool = false) -> void:
+	## Late mid-game / Age 3: assign líheň, zásobárna, výtrusnice using existing sprites only.
+	var nursery_budget := 0
+	var depot_budget := 0
+	var sporangium_budget := 0
+	var nursery_max := 3
+	var depot_max := 3 if (force_depots or mite_purged or decay_count >= 1) else 2
+	var sporangium_max := 2 if spore_time != null else 1
+	for g0 in germs:
+		match str(g0.get("role", C.ROLE_GERM)):
+			C.ROLE_NURSERY:
+				nursery_budget += 1
+			C.ROLE_DEPOT:
+				depot_budget += 1
+	for m0 in matters:
+		if m0.kind != "fruit":
+			continue
+		if str(m0.get("role", C.ROLE_FRUIT)) == C.ROLE_SPORANGIUM:
+			sporangium_budget += 1
+	for p0 in patches:
+		if not p0.on:
+			continue
+		if str(p0.get("role", C.ROLE_ANCHOR)) == C.ROLE_DEPOT:
+			depot_budget += 1
+	## Fruits → sporangia (výtrusnice).
+	var fruit_items: Array = []
+	for m in matters:
+		if m.kind == "fruit":
+			fruit_items.append(m)
+	fruit_items.sort_custom(func(a, b): return _node_dist_from_seed(a.x, a.y) < _node_dist_from_seed(b.x, b.y))
+	for m in fruit_items:
+		var role := str(m.get("role", C.ROLE_FRUIT))
+		if role != C.ROLE_FRUIT:
+			continue
+		if sporangium_budget < sporangium_max and (spore_time != null or fruit_time != null):
+			m.role = C.ROLE_SPORANGIUM
+			sporangium_budget += 1
+	## Germs nearest seed → nursery; farther linked → depot.
+	var germ_items: Array = []
+	for g in germs:
+		germ_items.append(g)
+	germ_items.sort_custom(func(a, b): return _node_dist_from_seed(a.x, a.y) < _node_dist_from_seed(b.x, b.y))
+	for g in germ_items:
+		var role := str(g.get("role", C.ROLE_GERM))
+		if role != C.ROLE_GERM:
+			continue
+		var dist := _node_dist_from_seed(g.x, g.y)
+		if nursery_budget < nursery_max and dist < 200.0 and (g.linked or g.lit > 0.4):
+			g.role = C.ROLE_NURSERY
+			g.lit = maxf(g.lit, 0.7)
+			nursery_budget += 1
+			continue
+		if depot_budget < depot_max and dist >= 160.0 and g.linked:
+			g.role = C.ROLE_DEPOT
+			g.lit = maxf(g.lit, 0.85)
+			depot_budget += 1
+	## Lit patches as nutrient depots (zásobárny) when budgets remain.
+	var patch_items: Array = []
+	for p in patches:
+		if p.on and not p.get("big", false):
+			patch_items.append(p)
+	patch_items.sort_custom(func(a, b): return _node_dist_from_seed(a.x, a.y) > _node_dist_from_seed(b.x, b.y))
+	for p in patch_items:
+		var role := str(p.get("role", C.ROLE_ANCHOR))
+		if role != C.ROLE_ANCHOR:
+			continue
+		if depot_budget < depot_max and (force_depots or mite_purged or decay_count >= 1):
+			p.role = C.ROLE_DEPOT
+			p.lit = maxf(p.lit, 0.9)
+			depot_budget += 1
+	buildings_specialized = true
 
 
 func _trigger_hint() -> void:
@@ -403,6 +498,94 @@ func _trigger_hint() -> void:
 		"x": float(C.W) - 70.0 if cx0 < float(C.W) / 2.0 else 70.0,
 		"y": float(C.H) - 60.0 if cy0 < float(C.H) / 2.0 else 60.0,
 	}
+	_specialize_buildings()
+
+
+func _pick_mite_nest_pos() -> Dictionary:
+	## Nest sits on the player's network, not at the foreign-edge infection.
+	var cx: float = seed.x if seed != null else float(C.W) * 0.5
+	var cy: float = seed.y if seed != null else float(C.H) * 0.5
+	if tips.size() > 0:
+		var tip: Dictionary = tips[0]
+		var best_d := 0.0
+		for t in tips:
+			var d := _node_dist_from_seed(t.x, t.y)
+			if d > best_d:
+				best_d = d
+				tip = t
+		return {
+			"x": lerpf(cx, tip.x, 0.55),
+			"y": lerpf(cy, tip.y, 0.55),
+		}
+	if germs.size() > 0:
+		return {
+			"x": lerpf(cx, germs[0].x, 0.45),
+			"y": lerpf(cy, germs[0].y, 0.45),
+		}
+	return {"x": cx + 90.0, "y": cy - 40.0}
+
+
+func _trigger_mites() -> void:
+	## GDD mid-game „Invaze roztočů“: parasites on hyphae — purged by encircle.
+	if mite_time != null:
+		return
+	mite_time = time
+	_bump_perform("mites")
+	_sfx_soft("hiss")
+	mite_pressure = 1.0
+	worker_slow = minf(worker_slow, 0.58)
+	var nest_pos := _pick_mite_nest_pos()
+	mite_nest = {"x": nest_pos.x, "y": nest_pos.y, "r": C.MITE_NEST_R}
+	mites.clear()
+	for i in range(10):
+		var a: float = _rnd() * PI * 2.0
+		var d: float = 6.0 + _rnd() * mite_nest.r * 0.85
+		mites.append({
+			"x": mite_nest.x + cos(a) * d,
+			"y": mite_nest.y + sin(a) * d,
+			"ph": _rnd() * PI * 2.0,
+			"r": 4.0 + _rnd() * 3.0,
+		})
+	_specialize_buildings()
+
+
+func _trigger_mite_purge() -> void:
+	if mite_purged or mite_time == null:
+		return
+	mite_purged = true
+	_bump_perform("mite_purge")
+	_sfx_soft("clean")
+	_sfx_dum(false, true)
+	mite_pressure = maxf(0.0, mite_pressure - 0.7)
+	worker_slow = 1.0
+	mites.clear()
+	if seed != null and mite_nest != null:
+		for i in range(18):
+			var a: float = _rnd() * PI * 2.0
+			grains.append({
+				"x": mite_nest.x + cos(a) * mite_nest.r * 0.4,
+				"y": mite_nest.y + sin(a) * mite_nest.r * 0.4,
+				"vx": (seed.x - mite_nest.x) * (0.12 + _rnd() * 0.2),
+				"vy": (seed.y - mite_nest.y) * (0.12 + _rnd() * 0.2),
+				"life": 1.3 + _rnd(),
+			})
+		rings.append({"x": mite_nest.x, "y": mite_nest.y, "t": 0.0, "big": true})
+	network_bright = maxf(network_bright, 0.85)
+	## Purge seeds a nursery near the nest and densifies depots.
+	var placed := false
+	for g in germs:
+		if str(g.get("role", C.ROLE_GERM)) != C.ROLE_GERM:
+			continue
+		g.role = C.ROLE_NURSERY
+		g.lit = 1.0
+		placed = true
+		break
+	if not placed and mite_nest != null:
+		germs.append({
+			"x": mite_nest.x + 18.0, "y": mite_nest.y - 12.0,
+			"lit": 1.0, "linked": true, "role": C.ROLE_NURSERY,
+		})
+	_specialize_buildings(true)
 
 
 func _begin_invasion() -> void:
@@ -427,6 +610,8 @@ func _trigger_quarantine() -> void:
 	infected.dead = true
 	infected.grey = 1.0
 	foreign_net = 0.15
+	mite_pressure = 0.0
+	worker_slow = 1.0
 	if seed != null:
 		for i in range(22):
 			var a: float = _rnd() * PI * 2.0
@@ -448,6 +633,7 @@ func _trigger_quarantine() -> void:
 		"encircled": false,
 		"decay": 0.0,
 	}
+	_specialize_buildings(true)
 
 
 func _trigger_skeleton() -> void:
@@ -460,6 +646,8 @@ func _trigger_skeleton() -> void:
 	network_gold = 1.0
 	network_bright = 1.0
 	_bump_perform("skeleton")
+	## Skeleton nutrients densify depots (zásobárny).
+	_specialize_buildings(true)
 	for g in germs:
 		for i in range(10):
 			var a: float = _rnd() * PI * 2.0
@@ -503,6 +691,15 @@ func _trigger_giant() -> void:
 	heart_beat = 1.0
 	_bump_perform("giant")
 	rings.append({"x": fp.x, "y": fp.y, "t": 0.0, "big": true})
+	## Giant fruiting era densifies nurseries (líhně) near the core.
+	for g in germs:
+		if _node_dist_from_seed(g.x, g.y) <= 210.0:
+			g.role = C.ROLE_NURSERY
+			g.lit = 1.0
+	for m in matters:
+		if m.kind == "fruit":
+			m.role = C.ROLE_SPORANGIUM
+	_specialize_buildings(true)
 
 
 func _trigger_seeds_hint() -> void:
@@ -661,6 +858,14 @@ func _try_encircle() -> bool:
 				_trigger_join()
 				return true
 
+	## Mid-game mite purge (GDD Invaze roztočů) — before Age-3 quarantine.
+	if mite_time != null and not mite_purged and mite_nest != null and quarantine_time == null:
+		var rec_m = G.encircle_recognized(poly, {
+			"x": mite_nest.x, "y": mite_nest.y, "rx": mite_nest.r, "ry": mite_nest.r * 0.8,
+		}, {"minLen": C.ENC_MIN_LEN * 0.7, "minPts": 8, "closePx": C.ENC_CLOSE_R})
+		if rec_m.ok or G.point_in_poly(mite_nest.x, mite_nest.y, poly):
+			_trigger_mite_purge()
+			return true
 	## Age 3 — quarantine infected zone / giant skeleton (same encircle gesture).
 	if (
 		hint_time != null and quarantine_time == null and infected != null and not infected.dead
@@ -733,7 +938,7 @@ func _spawn_big_patch() -> void:
 			best = c
 	patches.append({
 		"x": best[0], "y": best[1], "r": C.BIG_R, "lit": 0.0, "on": false,
-		"ph": _rnd() * 6.0, "big": true,
+		"ph": _rnd() * 6.0, "big": true, "role": C.ROLE_ANCHOR,
 	})
 
 
@@ -908,6 +1113,13 @@ func guidance() -> Dictionary:
 			"from": {"x": tip.x, "y": tip.y, "r": 8.0},
 			"to": {"x": germ.x, "y": germ.y, "r": 16.0},
 		}
+	if mite_time != null and not mite_purged and quarantine_time == null and mite_nest != null:
+		return {
+			"stepId": "mites", "label": "Zakroužkuj hnízdo roztočů",
+			"target": {"x": mite_nest.x, "y": mite_nest.y, "r": mite_nest.r},
+			"target2": null, "ghost": "encircle", "from": null,
+			"to": {"x": mite_nest.x, "y": mite_nest.y, "r": mite_nest.r},
+		}
 	if hint_time != null and quarantine_time == null and infected != null and not infected.dead:
 		return {
 			"stepId": "quarantine", "label": "Zakroužkuj nakaženou část",
@@ -960,6 +1172,7 @@ func poll_wows() -> Array:
 	_emit_wow("spore", "Výtrusný déšť", spore_time)
 	_emit_wow("join", "Spojení sítí", join_time)
 	_emit_wow("hint", "Cizí síť", hint_time)
+	_emit_wow("mites", "Invaze roztočů", mite_time)
 	_emit_wow("quarantine", "Karanténa", quarantine_time)
 	_emit_wow("skeleton", "Kostra stroje", skeleton_time)
 	_emit_wow("giant", "Obří plodnice", giant_time)
@@ -1378,6 +1591,20 @@ func update(dt: float) -> void:
 		_trigger_hint()
 	if hint_time != null and not invasion_active and time >= 620.0:
 		_begin_invasion()
+	## GDD Invaze roztočů — after hint, before quarantine; does not shift median gates.
+	if hint_time != null and mite_time == null and time >= C.WOW_MITES:
+		_trigger_mites()
+	if mite_pressure > 0.0 and quarantine_time == null and not mite_purged and mite_nest != null:
+		mite_pressure = minf(1.0, mite_pressure + dt * 0.04)
+		worker_slow = minf(worker_slow, lerpf(0.58, 0.4, mite_pressure))
+		for mite in mites:
+			mite.ph = float(mite.ph) + dt * (2.2 + mite_pressure)
+			mite.x = float(mite_nest.x) + cos(float(mite.ph)) * (8.0 + sin(float(mite.ph) * 0.7) * float(mite_nest.r) * 0.55)
+			mite.y = float(mite_nest.y) + sin(float(mite.ph) * 1.1) * (6.0 + cos(float(mite.ph) * 0.5) * float(mite_nest.r) * 0.45)
+	elif mite_pressure > 0.0 and mite_purged:
+		mite_pressure = maxf(0.0, mite_pressure - dt * 0.1)
+	if spore_time != null and not buildings_specialized and time >= C.WOW_SPORE + 8.0:
+		_specialize_buildings()
 	if infected != null and not infected.dead:
 		infected.grey = minf(1.0, infected.grey + dt * 0.08)
 	if skeleton != null and skeleton.encircled and skeleton.decay < 1.0:
@@ -1506,7 +1733,7 @@ func update(dt: float) -> void:
 		var n: int = w.route.size()
 		if n < 1:
 			continue
-		w.pos += ((float(w.dir) * float(w.speed)) / maxf(C.STEP, 1.0)) * dt
+		w.pos += ((float(w.dir) * float(w.speed) * worker_slow) / maxf(C.STEP, 1.0)) * dt
 		if w.pos >= float(n) - 0.01:
 			w.pos = float(n) - 0.01
 			w.dir = -1
@@ -1539,6 +1766,8 @@ func metrics() -> Dictionary:
 		"sporeTime": spore_time,
 		"joinTime": join_time,
 		"hintTime": hint_time,
+		"miteTime": mite_time,
+		"mitePurged": mite_purged,
 		"quarantineTime": quarantine_time,
 		"skeletonTime": skeleton_time,
 		"giantTime": giant_time,
@@ -1553,16 +1782,41 @@ func snapshot() -> Dictionary:
 		tip_out.append({"x": t.x, "y": t.y})
 	var patch_out: Array = []
 	for p in patches:
-		patch_out.append({"x": p.x, "y": p.y, "on": p.on, "big": p.get("big", false)})
+		patch_out.append({
+			"x": p.x, "y": p.y, "on": p.on, "big": p.get("big", false),
+			"role": str(p.get("role", C.ROLE_ANCHOR)),
+		})
 	var matter_out: Array = []
 	var fruit_out: Array = []
+	var role_counts := {
+		C.ROLE_FRUIT: 0, C.ROLE_SPORANGIUM: 0, C.ROLE_GERM: 0,
+		C.ROLE_NURSERY: 0, C.ROLE_DEPOT: 0, C.ROLE_ANCHOR: 0,
+	}
 	for m in matters:
-		matter_out.append({"x": m.x, "y": m.y, "r": m.r, "kind": m.kind, "decay": m.decay})
+		var mrole := str(m.get("role", C.ROLE_FRUIT)) if m.kind == "fruit" else str(m.kind)
+		matter_out.append({"x": m.x, "y": m.y, "r": m.r, "kind": m.kind, "decay": m.decay, "role": mrole})
 		if m.kind == "fruit":
-			fruit_out.append({"x": m.x, "y": m.y})
+			fruit_out.append({"x": m.x, "y": m.y, "role": mrole})
+			if role_counts.has(mrole):
+				role_counts[mrole] = int(role_counts[mrole]) + 1
+			else:
+				role_counts[mrole] = 1
 	var germ_out: Array = []
 	for g in germs:
-		germ_out.append({"x": g.x, "y": g.y, "linked": g.linked})
+		var grole := str(g.get("role", C.ROLE_GERM))
+		germ_out.append({"x": g.x, "y": g.y, "linked": g.linked, "role": grole})
+		if role_counts.has(grole):
+			role_counts[grole] = int(role_counts[grole]) + 1
+		else:
+			role_counts[grole] = 1
+	for p in patches:
+		if not p.on:
+			continue
+		var prole := str(p.get("role", C.ROLE_ANCHOR))
+		if role_counts.has(prole):
+			role_counts[prole] = int(role_counts[prole]) + 1
+		else:
+			role_counts[prole] = 1
 	return {
 		"tips": tip_out,
 		"patches": patch_out,
@@ -1570,6 +1824,9 @@ func snapshot() -> Dictionary:
 		"matters": matter_out,
 		"germs": germ_out,
 		"fruits": fruit_out,
+		"roleCounts": role_counts,
+		"mitePressure": mite_pressure,
+		"miteNest": {"x": mite_nest.x, "y": mite_nest.y, "r": mite_nest.r} if mite_nest != null else null,
 		"infected": {"x": infected.x, "y": infected.y, "r": infected.r, "dead": infected.dead} if infected != null else null,
 		"skeleton": {"x": skeleton.x, "y": skeleton.y, "r": skeleton.r, "encircled": skeleton.encircled} if skeleton != null else null,
 		"giantFruit": {"x": giant_fruit.x, "y": giant_fruit.y, "r": giant_fruit.r, "grow": giant_fruit.grow} if giant_fruit != null else null,
@@ -1648,9 +1905,14 @@ func bootstrap_start10() -> void:
 			"y": seed.y + sin(a) * 180.0,
 			"lit": 1.0,
 			"linked": true,
+			"role": C.ROLE_GERM,
 		})
+	for m in matters:
+		if m.kind == "fruit":
+			m.role = C.ROLE_SPORANGIUM
 	heart_beat = 0.7
 	time = C.START10_T
+	_specialize_buildings()
 	_trigger_hint()
 	_begin_invasion()
 
