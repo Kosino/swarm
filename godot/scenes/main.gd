@@ -794,9 +794,9 @@ func _hypha_mean_th(ths: Array) -> float:
 func _draw_hyphae() -> void:
 	## Build 14 retune: ~8–15 arteries (6–14px), lime core #e8f25a + olive glow #6f8a2a.
 	## Secondaries thinner @ ~40% opacity. SwarmGfx quality/view cull preserved (Build 18).
-	const COL_OLIVE := Color(0.435, 0.541, 0.165) ## #6f8a2a
-	const COL_LIME := Color(0.910, 0.949, 0.353) ## #e8f25a
-	var bright: float = 1.0 + world.network_bright * 0.2
+	var col_olive := Color(0.435, 0.541, 0.165) ## #6f8a2a
+	var col_lime := Color(0.910, 0.949, 0.353) ## #e8f25a
+	var bright: float = 1.0 + world.network_bright * 0.15
 	var hyfa_tex: Texture2D = null
 	if SwarmGfx.hyfa_tex_accent():
 		if atlas.has("myc2_hyfa_silna_SE"):
@@ -805,25 +805,39 @@ func _draw_hyphae() -> void:
 			hyfa_tex = atlas["myc2_hyfa_stredni_SE"].texture
 	var passes: int = SwarmGfx.ribbon_passes()
 	var step_r: float = SwarmGfx.ribbon_resample_step()
-	## Art budget: 8–15 main arteries + a few secondaries (never full spaghetti).
-	var max_arteries: int = 12
-	var max_secondary: int = 10
+	## Art budget: 8–15 main arteries + sparse secondaries (never full spaghetti).
+	var max_arteries: int = 13
+	var max_secondary: int = 6
 	if SwarmGfx.q_level() >= 1:
-		max_arteries = 10
-		max_secondary = 6
+		max_arteries = 11
+		max_secondary = 4
 	if SwarmGfx.q_level() >= 2:
 		max_arteries = 8
-		max_secondary = 4
+		max_secondary = 3
 	max_arteries = mini(max_arteries, SwarmGfx.max_hypha_chains())
+	## Rank tips by max ancestral thickness so trunks win over fresh tip th=0.
 	var tip_order: Array = []
 	for ti in range(world.tips.size()):
 		var tip0 = world.tips[ti]
-		var th0: int = 0
+		var max_th: int = 0
+		var sum_th: int = 0
+		var n_th: int = 0
 		var s0: int = int(tip0.seg)
-		if s0 >= 0 and s0 < world.segs.size():
-			th0 = int(world.segs[s0].th)
-		tip_order.append({"i": ti, "th": th0})
-	tip_order.sort_custom(func(a, b): return int(a.th) > int(b.th))
+		var g0 := 0
+		while s0 >= 0 and s0 < world.segs.size() and g0 < 4000:
+			g0 += 1
+			var thv: int = int(world.segs[s0].th)
+			max_th = maxi(max_th, thv)
+			sum_th += thv
+			n_th += 1
+			s0 = int(world.segs[s0].p)
+		var mean0: float = float(sum_th) / float(maxi(1, n_th))
+		tip_order.append({"i": ti, "th": max_th, "mean": mean0})
+	tip_order.sort_custom(func(a, b):
+		if int(a.th) != int(b.th):
+			return int(a.th) > int(b.th)
+		return float(a.mean) > float(b.mean)
+	)
 	var drawn_arteries := 0
 	var drawn_secondary := 0
 	var drawn_anchors: Array = []
@@ -831,7 +845,7 @@ func _draw_hyphae() -> void:
 		if drawn_arteries >= max_arteries and drawn_secondary >= max_secondary:
 			break
 		var tip = world.tips[int(item.i)]
-		var tip_th: int = int(item.th)
+		var max_th: int = int(item.th)
 		var pts: Array = []
 		var ths: Array = []
 		pts.append(Vector2(float(tip.x), float(tip.y)))
@@ -862,12 +876,14 @@ func _draw_hyphae() -> void:
 		while ths.size() < pts.size() - 1:
 			ths.append(0)
 		var mean_th: float = _hypha_mean_th(ths)
-		var is_artery: bool = tip_th >= 2 or mean_th >= 1.55
+		var chain_len: float = _hypha_chain_len(pts)
+		## Prefer thick/long trunks as arteries so late maps keep ~8–15 readable highways.
+		var is_artery: bool = max_th >= 2 or mean_th >= 1.15 or (max_th >= 1 and chain_len > 180.0)
 		if is_artery and drawn_arteries >= max_arteries:
 			is_artery = false
 		if not is_artery and drawn_secondary >= max_secondary:
 			continue
-		## Merge parallel low-traffic into already-drawn arteries.
+		## Merge parallel secondaries into arteries.
 		if not is_artery and drawn_anchors.size() > 0:
 			var tip_w: Vector2 = Vector2(float(tip.x), float(tip.y))
 			var mid_w: Vector2 = pts[pts.size() / 2]
@@ -875,44 +891,52 @@ func _draw_hyphae() -> void:
 			for anchors in drawn_anchors:
 				for ai in range(anchors.size()):
 					var a: Vector2 = anchors[ai]
-					if tip_w.distance_squared_to(a) < 36.0 * 36.0 or mid_w.distance_squared_to(a) < 28.0 * 28.0:
+					if tip_w.distance_squared_to(a) < 42.0 * 42.0 or mid_w.distance_squared_to(a) < 34.0 * 34.0:
 						near_parallel = true
 						break
 				if near_parallel:
 					break
 			if near_parallel:
 				continue
-		var sampled: Dictionary = _resample_catmull(pts, ths, step_r if is_artery else step_r * 1.15)
+		## Secondaries: only distal third so they don't carpet the map.
+		if not is_artery and pts.size() > 8:
+			var keep_from: int = int(float(pts.size()) * 0.62)
+			pts = pts.slice(keep_from)
+			ths = ths.slice(mini(keep_from, ths.size()))
+			while ths.size() < pts.size() - 1:
+				ths.append(0)
+		var sampled: Dictionary = _resample_catmull(pts, ths, step_r if is_artery else step_r * 1.2)
 		var iso_pts: PackedVector2Array = sampled.pts
 		var half_w: PackedFloat32Array = sampled.hw
 		if iso_pts.size() < 2:
 			continue
 		## Target full width: arteries 6–14px → half_w ≈ 3–7; secondaries thinner.
 		for wi in range(half_w.size()):
-			var base_hw: float = half_w[wi]
 			if is_artery:
-				half_w[wi] = clampf(base_hw * 1.45, 3.0, 7.0)
+				## Force readable artery width regardless of thin tip samples.
+				var t_u: float = float(wi) / float(maxi(1, half_w.size() - 1))
+				half_w[wi] = lerpf(6.2, 3.4, t_u) ## root thicker → tip taper within 6–14px full
 			else:
-				half_w[wi] = clampf(base_hw * 0.85, 1.4, 3.2)
+				half_w[wi] = clampf(half_w[wi] * 0.9, 1.6, 2.8)
 		var fade: float = 1.0 if is_artery else 0.40
 		## Olive glow + lime core (additive stack; no cream blowout).
 		if passes >= 4:
-			_draw_ribbon(iso_pts, half_w, Color(COL_OLIVE.r, COL_OLIVE.g, COL_OLIVE.b, 0.22 * bright * fade), 2.35)
-			_draw_ribbon(iso_pts, half_w, Color(COL_OLIVE.r * 1.15, COL_OLIVE.g * 1.1, COL_OLIVE.b * 0.9, 0.28 * bright * fade), 1.55)
-			_draw_ribbon(iso_pts, half_w, Color(COL_LIME.r, COL_LIME.g, COL_LIME.b, 0.55 * bright * fade), 0.95)
-			_draw_ribbon(iso_pts, half_w, Color(COL_LIME.r, COL_LIME.g, COL_LIME.b, 0.72 * bright * fade), 0.42)
+			_draw_ribbon(iso_pts, half_w, Color(col_olive.r, col_olive.g, col_olive.b, 0.38 * bright * fade), 2.2)
+			_draw_ribbon(iso_pts, half_w, Color(col_olive.r, col_olive.g, col_olive.b, 0.32 * bright * fade), 1.45)
+			_draw_ribbon(iso_pts, half_w, Color(col_lime.r, col_lime.g, col_lime.b, 0.70 * bright * fade), 0.85)
+			_draw_ribbon(iso_pts, half_w, Color(col_lime.r, col_lime.g, col_lime.b, 0.88 * bright * fade), 0.38)
 		elif passes >= 2:
-			_draw_ribbon(iso_pts, half_w, Color(COL_OLIVE.r, COL_OLIVE.g, COL_OLIVE.b, 0.28 * bright * fade), 2.1)
-			_draw_ribbon(iso_pts, half_w, Color(COL_LIME.r, COL_LIME.g, COL_LIME.b, 0.62 * bright * fade), 0.7)
+			_draw_ribbon(iso_pts, half_w, Color(col_olive.r, col_olive.g, col_olive.b, 0.40 * bright * fade), 2.0)
+			_draw_ribbon(iso_pts, half_w, Color(col_lime.r, col_lime.g, col_lime.b, 0.78 * bright * fade), 0.65)
 		else:
-			_draw_ribbon(iso_pts, half_w, Color(COL_OLIVE.r, COL_OLIVE.g, COL_OLIVE.b, 0.25 * bright * fade), 1.9)
-			_draw_ribbon(iso_pts, half_w, Color(COL_LIME.r, COL_LIME.g, COL_LIME.b, 0.65 * bright * fade), 0.85)
+			_draw_ribbon(iso_pts, half_w, Color(col_olive.r, col_olive.g, col_olive.b, 0.36 * bright * fade), 1.85)
+			_draw_ribbon(iso_pts, half_w, Color(col_lime.r, col_lime.g, col_lime.b, 0.82 * bright * fade), 0.75)
 		if hyfa_tex != null and is_artery and iso_pts.size() >= 2:
 			var mid_i: int = iso_pts.size() / 2
 			var mid: Vector2 = iso_pts[mid_i]
-			var hw_m: float = half_w[mid_i] * 1.8
-			var a: float = 0.12 + 0.08 * world.network_bright
-			draw_texture_rect(hyfa_tex, Rect2(mid - Vector2(hw_m * 2.0, hw_m), Vector2(hw_m * 4.0, hw_m * 2.0)), false, Color(COL_LIME.r, COL_LIME.g, COL_LIME.b, a))
+			var hw_m: float = half_w[mid_i] * 1.6
+			var a: float = 0.14 + 0.08 * world.network_bright
+			draw_texture_rect(hyfa_tex, Rect2(mid - Vector2(hw_m * 2.0, hw_m), Vector2(hw_m * 4.0, hw_m * 2.0)), false, Color(col_lime.r, col_lime.g, col_lime.b, a))
 		var anchors2 := PackedVector2Array()
 		var step_a: int = maxi(1, int(pts.size() / 6))
 		for pj in range(0, pts.size(), step_a):
@@ -934,7 +958,7 @@ func _draw_hyphae() -> void:
 			var iso_n := Iso.world_to_iso(s2.x1, s2.y1)
 			if not SwarmGfx.iso_in_view(iso_n, _view):
 				continue
-			ProArt.blit(self, pro, "myc_decal_hyfa_chomac", iso_n, 0.26 if not _use_2x else 0.13, Color(COL_LIME.r, COL_LIME.g, COL_LIME.b, 0.32))
+			ProArt.blit(self, pro, "myc_decal_hyfa_chomac", iso_n, 0.26 if not _use_2x else 0.13, Color(col_lime.r, col_lime.g, col_lime.b, 0.32))
 			shown += 1
 			if shown > max_nodes:
 				break
