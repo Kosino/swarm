@@ -584,13 +584,13 @@ func _draw_ground_base() -> void:
 	_draw_ground_decals()
 
 
-func _blit(name: String, world_x: float, world_y: float, scale: float = 1.0, modulate: Color = Color.WHITE) -> void:
+func _blit(name: String, world_x: float, world_y: float, scale: float = 1.0, modulate: Color = Color.WHITE, extra_off: Vector2 = Vector2.ZERO) -> void:
 	if not atlas.has(name):
 		return
 	var entry: Dictionary = atlas[name]
 	var tex: Texture2D = entry.texture
 	var off: Vector2 = entry.offset
-	var iso: Vector2 = Iso.world_to_iso(world_x, world_y)
+	var iso: Vector2 = Iso.world_to_iso(world_x, world_y) + extra_off
 	var sz: Vector2 = tex.get_size() * scale
 	var dest := Rect2(iso + off * scale, sz)
 	draw_texture_rect(tex, dest, false, modulate)
@@ -992,23 +992,25 @@ func _draw_entities() -> void:
 		if prole == "depot":
 			stage = "zariva"
 		var name := "myc2_kotva_%s" % stage
-		var sc := 0.55 if p.get("big", false) else 0.4
+		## Build 21: taller kotva silhouette (koncept_pokrocila stone-ruin mass).
+		var sc := 0.72 if p.get("big", false) else 0.55
 		if prole == "depot":
-			sc *= 1.12
+			sc *= 1.18
 		if _use_2x:
 			sc *= 0.5
+		var lift := Vector2(0.0, -6.0 if p.get("big", false) else -3.0)
 		if SwarmGfx.soft_shadows():
-			_draw_soft_shadow(p.x, p.y, 14.0 if p.get("big", false) else 9.0, 0.22 + p.lit * 0.12)
-		var pmod := Color(1, 1, 1, 0.55 + p.lit * 0.4)
+			_draw_soft_shadow(p.x, p.y, 18.0 if p.get("big", false) else 12.0, 0.26 + p.lit * 0.14)
+		var pmod := Color(1, 1, 1, 0.62 + p.lit * 0.35)
 		if prole == "depot":
 			pmod = pmod.lerp(Color(1.25, 1.15, 0.55, 1.0), 0.35 + p.lit * 0.2)
 		if mite_grey > 0.2:
 			pmod = pmod.lerp(Color(0.55, 0.6, 0.5, 0.9), mite_grey * 0.25)
 		if atlas.has(name):
-			_blit(name, p.x, p.y, sc, pmod)
+			_blit(name, p.x, p.y, sc, pmod, lift)
 			## Soft zariva bloom only — never prorust hatch overlays.
 			if (stage == "zariva" or prole == "depot") and atlas.has("myc2_overlay_zare") and p.lit > 0.55 and SwarmGfx.q_level() == 0:
-				_blit("myc2_overlay_zare", p.x, p.y, sc * 0.75, Color(1.15, 1.3, 0.85, 0.1 + p.lit * 0.08))
+				_blit("myc2_overlay_zare", p.x, p.y, sc * 0.78, Color(1.15, 1.3, 0.85, 0.12 + p.lit * 0.1), lift + Vector2(0, -4))
 		else:
 			_draw_box_fallback(p.x, p.y, p.r * 0.7, Color(0.35, 0.7, 0.45, 0.85))
 
@@ -1029,21 +1031,30 @@ func _draw_entities() -> void:
 					name = "myc2_plodnice_dorostla"
 				else:
 					name = "myc2_plodnice_rozestavena"
-		var sc := 0.45
+		## Build 21: bulbous plodnice height / depth toward overview 3/4.
+		var sc := 0.62
 		if mrole == "sporangium":
-			sc *= 1.12
+			sc *= 1.22
+		elif String(m.kind) == "fruit":
+			sc *= 1.08
 		if _use_2x:
 			sc *= 0.5
 		var alpha := 1.0 - float(m.decay) * 0.35
 		var mmod := Color(1, 1, 1, alpha)
 		if mrole == "sporangium":
-			mmod = mmod.lerp(Color(1.2, 1.35, 0.85, alpha), 0.35)
+			mmod = mmod.lerp(Color(1.25, 1.4, 0.9, alpha), 0.4)
 		if mite_grey > 0.2 and String(m.kind) == "fruit":
 			mmod = mmod.lerp(Color(0.6, 0.65, 0.5, alpha), mite_grey * 0.2)
+		var mlift := Vector2(0.0, -8.0 if mrole == "sporangium" else -5.0)
 		if name != "" and atlas.has(name):
-			_blit(name, m.x, m.y, sc, mmod)
+			if SwarmGfx.soft_shadows():
+				_draw_soft_shadow(m.x, m.y, 14.0 if mrole == "sporangium" else 11.0, 0.24)
+			_blit(name, m.x, m.y, sc, mmod, mlift)
+			## Stacked crown for zariva / sporangium — taller overview reading.
+			if mrole == "sporangium" or name.ends_with("_zariva"):
+				_blit(name, m.x, m.y, sc * 0.72, mmod, mlift + Vector2(0.0, -18.0 if not _use_2x else -9.0))
 			if mrole == "sporangium" and atlas.has("myc2_overlay_zare"):
-				_blit("myc2_overlay_zare", m.x, m.y - 6.0, sc * 0.8, Color(1.15, 1.35, 0.9, 0.12 + world.network_bright * 0.1))
+				_blit("myc2_overlay_zare", m.x, m.y - 6.0, sc * 0.85, Color(1.15, 1.35, 0.9, 0.14 + world.network_bright * 0.12), mlift + Vector2(0, -10))
 		else:
 			_draw_box_fallback(m.x, m.y, m.r * 0.55, Color(0.4, 0.65, 0.45, 0.7 * alpha))
 
@@ -1056,19 +1067,25 @@ func _draw_entities() -> void:
 			gstage = "zariva"
 		## Depot germs read as nutrient stores via kotva; nursery keeps zarodek.
 		var gname := "myc2_zarodek_%s" % gstage
-		var gsc := 0.22 if not _use_2x else 0.11
-		var gmod := Color(0.85, 0.95, 0.8, 0.7 + g.lit * 0.3)
+		## Build 21: zárodek / nursery nodes with more stalk height.
+		var gsc := 0.32 if not _use_2x else 0.16
+		var gmod := Color(0.85, 0.95, 0.8, 0.75 + g.lit * 0.25)
+		var glift := Vector2(0.0, -4.0)
 		if grole == "depot":
 			gname = "myc2_kotva_%s" % ("zariva" if g.lit > 0.6 else "dorostla")
-			gsc = 0.32 if not _use_2x else 0.16
-			gmod = Color(1.2, 1.1, 0.55, 0.75 + g.lit * 0.25)
+			gsc = 0.42 if not _use_2x else 0.21
+			gmod = Color(1.2, 1.1, 0.55, 0.78 + g.lit * 0.22)
+			glift = Vector2(0.0, -5.0)
 		elif grole == "nursery":
-			gsc *= 1.25
+			gsc *= 1.35
 			gmod = gmod.lerp(Color(1.05, 1.2, 1.15, 1.0), 0.35 + g.lit * 0.2)
+			glift = Vector2(0.0, -6.0)
 		if atlas.has(gname):
-			_blit(gname, g.x, g.y, gsc, gmod)
+			if SwarmGfx.soft_shadows():
+				_draw_soft_shadow(g.x, g.y, 8.0, 0.18 + g.lit * 0.08)
+			_blit(gname, g.x, g.y, gsc, gmod, glift)
 			if (grole == "nursery" or grole == "depot") and atlas.has("myc2_overlay_zare"):
-				_blit("myc2_overlay_zare", g.x, g.y, gsc * 0.85, Color(1.1, 1.25, 0.95, 0.12 + g.lit * 0.1))
+				_blit("myc2_overlay_zare", g.x, g.y, gsc * 0.9, Color(1.1, 1.25, 0.95, 0.14 + g.lit * 0.1), glift)
 		else:
 			draw_circle(Iso.world_to_iso(g.x, g.y), 4.0, Color(0.45, 0.85, 0.55, 0.8))
 
@@ -1079,8 +1096,12 @@ func _draw_entities() -> void:
 		elif world.segs.size() < 40:
 			sstage = "rozestavena"
 		var sname := "myc2_zarodek_%s" % sstage
+		## Central zárodek — taller stalk orb (overview 0-min / core).
+		var ssc: float = 0.68 if not _use_2x else 0.34
 		if atlas.has(sname):
-			_blit(sname, world.seed.x, world.seed.y, 0.5 if not _use_2x else 0.25)
+			if SwarmGfx.soft_shadows():
+				_draw_soft_shadow(world.seed.x, world.seed.y, 16.0, 0.28)
+			_blit(sname, world.seed.x, world.seed.y, ssc, Color(1.05, 1.15, 0.95, 0.95), Vector2(0, -8))
 		else:
 			draw_circle(Iso.world_to_iso(world.seed.x, world.seed.y), 6.0, Color(0.5, 0.9, 0.6))
 
@@ -1181,19 +1202,20 @@ func _draw_entities() -> void:
 			_blit("myc2_kotva_dorostla", sk.x, sk.y, 0.7 if not _use_2x else 0.35, Color(0.75, 0.7, 0.6, alpha))
 	if world.giant_fruit != null:
 		var gf = world.giant_fruit
+		## Build 21: obří plodnice — more 3/4 volume.
 		if ProArt.has(pro, "myc_giant_fruit"):
-			ProArt.blit(self, pro, "myc_giant_fruit", Iso.world_to_iso(gf.x, gf.y), 0.65 + gf.grow * 0.35 if not _use_2x else 0.32 + gf.grow * 0.18, Color(1, 1, 1, 0.9 * dim))
+			ProArt.blit(self, pro, "myc_giant_fruit", Iso.world_to_iso(gf.x, gf.y) + Vector2(0, -12), 0.82 + gf.grow * 0.42 if not _use_2x else 0.41 + gf.grow * 0.21, Color(1, 1, 1, 0.92 * dim))
 		else:
 			var gfn := "myc2_plodnice_zariva" if gf.grow > 0.7 else ("myc2_plodnice_dorostla" if gf.grow > 0.3 else "myc2_plodnice_rozestavena")
 			if atlas.has(gfn):
-				_blit(gfn, gf.x, gf.y, 0.7 + gf.grow * 0.4 if not _use_2x else 0.35 + gf.grow * 0.2, Color(1.2, 1.25, 1.05, 0.9 * dim))
+				_blit(gfn, gf.x, gf.y, 0.88 + gf.grow * 0.45 if not _use_2x else 0.44 + gf.grow * 0.22, Color(1.2, 1.25, 1.05, 0.9 * dim), Vector2(0, -12))
 	if world.seed_capsule != null:
 		var sc = world.seed_capsule
 		var glow: float = 0.6 + 0.4 * abs(sin(world.time * 3.2))
 		if ProArt.has(pro, "myc_seed_capsule"):
-			ProArt.blit(self, pro, "myc_seed_capsule", Iso.world_to_iso(sc.x, sc.y), 0.55 if not _use_2x else 0.28, Color(1.15, 1.2, 1.0, glow))
+			ProArt.blit(self, pro, "myc_seed_capsule", Iso.world_to_iso(sc.x, sc.y) + Vector2(0, -8), 0.7 if not _use_2x else 0.35, Color(1.15, 1.2, 1.0, glow))
 		elif atlas.has("myc2_zarodek_zariva"):
-			_blit("myc2_zarodek_zariva", sc.x, sc.y, 0.45 if not _use_2x else 0.22, Color(1.3, 1.35, 1.1, glow))
+			_blit("myc2_zarodek_zariva", sc.x, sc.y, 0.58 if not _use_2x else 0.29, Color(1.3, 1.35, 1.1, glow), Vector2(0, -8))
 	if world.mvp_end_time != null:
 		_draw_ending_planet()
 
