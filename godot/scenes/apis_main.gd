@@ -51,6 +51,9 @@ var _prev_chambers: int = 0
 var _prev_wax: float = -1.0
 var _prev_nectar_flag = null
 var _had_planted: bool = false
+var _had_winter: bool = false
+var _had_brass: bool = false
+var _rust_flake_cd: float = 0.0
 var help_open: bool = false
 var _view: Rect2 = Rect2()
 var _help_draw: Node2D
@@ -138,6 +141,34 @@ func _ready() -> void:
 	queue_redraw()
 	if capture_at >= 0.0 and capture_out != "":
 		## Capture-only: Age 3 holds rarely complete under autoplay — force Seeds / ending chrome for stills.
+		## Rezavá zima stills — cold spread then winter cluster (presentation pins only).
+		if capture_at >= 600.0 and capture_at < 665.0:
+			if world.hint_time == null:
+				world._trigger_dusk_hint()
+			world.cold = maxf(world.cold, 0.88)
+			world.dusk = maxf(world.dusk, 0.92)
+			world.worker_slow = minf(world.worker_slow, 0.4)
+		if capture_at >= 665.0 and capture_at < 740.0:
+			if world.hint_time == null:
+				world._trigger_dusk_hint()
+			if world.winter_time == null:
+				world._trigger_winter()
+			## Pin presentation so stills read the warm ball + flake fall.
+			world.cluster_warm = maxf(world.cluster_warm, 0.95)
+			world.rust_fall = maxf(world.rust_fall, 0.9)
+			for w in world.workers:
+				w.flower = -3
+			## Settle cluster orbits before the PNG (flower=-3 is positional in update).
+			for _settle in range(18):
+				world.update(1.0 / 12.0)
+			_had_winter = true
+			_burst_rust_flakes(_hive().x, _hive().y, 8)
+		if capture_at >= 740.0 and capture_at < 820.0:
+			if world.winter_time == null:
+				world._trigger_winter()
+			if world.brass_time == null:
+				world._trigger_brass()
+			world.brass_sheen = maxf(world.brass_sheen, 0.95)
 		if capture_at >= 820.0 and world.royal_cell == null:
 			world._trigger_royal()
 		if capture_at >= 878.0 and world.seeds_time == null and world.royal_cell != null:
@@ -152,6 +183,9 @@ func _ready() -> void:
 			if world.royal_cell != null:
 				world.royal_cell.capped = true
 				world.royal_cell.glow = 1.0
+		elif world.winter_time != null and world.brass_time == null:
+			camera.position = Iso.world_to_iso(_hive().x, _hive().y) + Vector2(0, -20)
+			camera.zoom = Vector2(1.05, 1.05)
 		elif world.royal_cell != null:
 			camera.position = Iso.world_to_iso(float(world.royal_cell.x), float(world.royal_cell.y)) + Vector2(0, -36)
 			camera.zoom = Vector2(0.9, 0.9)
@@ -448,6 +482,52 @@ func _tick_fx(dt: float) -> void:
 		var h2 := _hive()
 		_spawn_fx("apis2_fx_feromon", h2.x, h2.y, 1.0)
 		_spawn_fx("apis2_fx_pyl", h2.x - 8.0, h2.y + 6.0, 1.05)
+	## Rezavá zima — winter cluster burst: warm ball + rust flakes falling.
+	if world.winter_time != null and not _had_winter:
+		_had_winter = true
+		var hw := _hive()
+		Juice.spawn_ripple(_juice, hw.x, hw.y, true, Color(1.15, 0.72, 0.35, 0.85))
+		Juice.spawn_pop(_juice, hw.x, hw.y, Color(1.2, 0.85, 0.4, 0.95), 0.55)
+		_spawn_fx("apis2_fx_pyl", hw.x, hw.y - 6.0, 1.2)
+		_spawn_fx("apis2_fx_feromon", hw.x, hw.y + 4.0, 1.05)
+		_burst_rust_flakes(hw.x, hw.y, 10)
+	elif world.winter_time != null:
+		_had_winter = true
+	## Ongoing flake rain while rust_fall is hot.
+	if world.rust_fall > 0.08:
+		_rust_flake_cd -= dt
+		if _rust_flake_cd <= 0.0:
+			_rust_flake_cd = 0.07 + (1.0 - world.rust_fall) * 0.12
+			var src := _hive()
+			if world.rust_chamber != null:
+				for ch in world.chambers.values():
+					if world._hex_key(ch.q, ch.r) == world.rust_chamber:
+						src = world._axial_to_pixel(ch.q, ch.r)
+						break
+			var ox: float = (randf() - 0.5) * 70.0
+			var oy: float = (randf() - 0.5) * 40.0
+			Juice.spawn_pop(
+				_juice, src.x + ox, src.y + oy,
+				Color(0.75, 0.42, 0.28, 0.55 + world.rust_fall * 0.35), 0.32
+			)
+	## Brass loot — metal flakes carried into the hive (12:25).
+	if world.brass_time != null and not _had_brass:
+		_had_brass = true
+		var hb := _hive()
+		Juice.spawn_ripple(_juice, hb.x, hb.y, true, Color(1.2, 0.95, 0.45, 0.8))
+		if world.rust_machine != null:
+			Juice.spawn_pop(_juice, float(world.rust_machine.x), float(world.rust_machine.y), Color(1.15, 0.9, 0.5, 0.9), 0.5)
+		for _i in range(6):
+			var ang: float = randf() * TAU
+			Juice.spawn_float(
+				_juice,
+				hb.x + cos(ang) * 18.0,
+				hb.y + sin(ang) * 12.0,
+				"·",
+				Color(1.25, 1.0, 0.55, 0.9)
+			)
+	elif world.brass_time != null:
+		_had_brass = true
 	## Hive plant / chamber placement pops.
 	if world.planted and not _had_planted:
 		_had_planted = true
@@ -493,6 +573,19 @@ func _tick_fx(dt: float) -> void:
 
 func _chamber_pixel(ch: Dictionary) -> Vector2:
 	return world._axial_to_pixel(int(ch.q), int(ch.r))
+
+
+func _burst_rust_flakes(x: float, y: float, n: int) -> void:
+	for i in range(n):
+		var ang: float = float(i) / maxf(1.0, float(n)) * TAU + randf() * 0.4
+		var rad: float = 18.0 + randf() * 48.0
+		Juice.spawn_pop(
+			_juice,
+			x + cos(ang) * rad,
+			y + sin(ang) * rad * 0.75,
+			Color(0.7, 0.38, 0.25, 0.75),
+			0.28 + randf() * 0.25
+		)
 
 
 func _draw() -> void:
@@ -921,8 +1014,22 @@ func _draw_chambers() -> void:
 			mod = mod.lerp(Color(1.05, 0.95, 1.15, 1.0), 0.2 + ch.pulse * 0.15)
 		if role == "honey" and not rim:
 			mod = mod.lerp(Color(1.35, 1.1, 0.45, 1.0), 0.3 + ch.amber * 0.25)
-		if world.rust_chamber != null and world._hex_key(ch.q, ch.r) == world.rust_chamber and world.winter_time == null:
-			mod = mod.lerp(Color(0.85, 0.45, 0.3, 0.95), 0.45 + world.cold * 0.3)
+		## Rezavá zima: cold/rust spreads from rusty chamber; neighbours grey as cold rises.
+		var rust_i: float = world.rust_intensity_at(int(ch.q), int(ch.r))
+		if rust_i > 0.02 and world.winter_time == null:
+			## Epicenter stays copper-rust; ring greys (šednou).
+			var rust_col := Color(0.82, 0.42, 0.28, 0.95)
+			var grey_col := Color(0.55, 0.52, 0.5, 0.92)
+			var mix_col: Color = rust_col.lerp(grey_col, clampf(1.0 - rust_i * 1.1, 0.0, 0.85))
+			mod = mod.lerp(mix_col, 0.35 + rust_i * 0.5)
+		## Brief warm afterglow on previously rusty cells while flakes fall.
+		elif world.rust_fall > 0.05 and world.rust_chamber != null:
+			var parts: PackedStringArray = str(world.rust_chamber).split(",")
+			if parts.size() >= 2:
+				var dq: int = abs(int(ch.q) - int(parts[0]))
+				var dr: int = abs(int(ch.r) - int(parts[1]))
+				if dq + dr <= 2:
+					mod = mod.lerp(Color(0.95, 0.78, 0.48, 0.95), world.rust_fall * 0.28)
 		if world.drought > 0.2 and world.winter_time == null and not rim:
 			mod = mod.lerp(Color(0.95, 0.75, 0.5, 0.95), world.drought * 0.22)
 		if not SwarmGfx.iso_in_view(Iso.world_to_iso(p.x, p.y), _view):
@@ -986,7 +1093,7 @@ func _draw_chambers() -> void:
 				floor_mul *= 1.25
 			_draw_box(p.x, p.y, half, Color(0.7, 0.55, 0.35, 0.55 + grow * 0.35), half * 0.35 * world.hive_scale * floor_mul)
 	if world.core != null:
-		var ul := "apis2_ul_zarivy" if world.core_pulse > 0.4 or world.brass_sheen > 0.3 else "apis2_ul_dostaveny"
+		var ul := "apis2_ul_zarivy" if world.core_pulse > 0.4 or world.brass_sheen > 0.3 or world.cluster_warm > 0.4 else "apis2_ul_dostaveny"
 		if world.time < 90.0 and world.chambers.size() < 4:
 			ul = "apis2_ul_rozestaveny"
 		if atlas.has(ul):
@@ -996,9 +1103,14 @@ func _draw_chambers() -> void:
 			var ul_mod := Color(1.08, 0.92, 0.72, 0.92 + world.core_pulse * 0.08)
 			if world.brass_sheen > 0.15:
 				ul_mod = ul_mod.lerp(Color(1.28, 0.95, 0.55, 1.0), world.brass_sheen * 0.45)
+			if world.cluster_warm > 0.2:
+				ul_mod = ul_mod.lerp(Color(1.35, 0.95, 0.5, 1.0), world.cluster_warm * 0.4)
 			_blit(ul, world.core.x, world.core.y, ul_sc, ul_mod, lift)
 		if atlas.has("apis2_overlay_med") and world.core_pulse > 0.2:
 			_blit("apis2_overlay_med", world.core.x, world.core.y, 0.48 if not _use_2x else 0.24, Color(1.4, 1.15, 0.65, 0.28 + world.core_pulse * 0.35), Vector2(0, -30))
+		## Zimní chomáč — living warm ball glow under the clustered swarm.
+		if world.cluster_warm > 0.08:
+			_draw_winter_cluster_ball()
 	if world.rust_machine != null:
 		var rm = world.rust_machine
 		if ProArt.has(pro, "apis_rust_machine"):
@@ -1092,18 +1204,43 @@ func _draw_builders() -> void:
 				break
 
 
+func _draw_winter_cluster_ball() -> void:
+	var hc := _hive()
+	var iso := Iso.world_to_iso(hc.x, hc.y)
+	var a: float = clampf(world.cluster_warm, 0.0, 1.0)
+	var pulse: float = 0.85 + 0.15 * sin(world.time * 3.2)
+	var r0: float = 22.0 + 10.0 * a * pulse
+	draw_circle(iso + Vector2(0, -6), r0 * 1.15, Color(1.15, 0.7, 0.3, 0.1 * a))
+	draw_circle(iso + Vector2(0, -6), r0 * 0.7, Color(1.25, 0.85, 0.4, 0.16 * a))
+	draw_arc(iso + Vector2(0, -6), r0 * 1.35, 0, TAU, 40, Color(1.2, 0.78, 0.35, 0.35 * a), 2.0)
+	if atlas.has("apis2_overlay_med"):
+		_blit(
+			"apis2_overlay_med", hc.x, hc.y,
+			(0.72 if not _use_2x else 0.36) * (0.85 + 0.2 * a),
+			Color(1.45, 1.05, 0.5, 0.28 + 0.4 * a),
+			Vector2(0, -18)
+		)
+
+
 func _draw_workers() -> void:
 	var drawn := 0
 	var max_w: int = SwarmGfx.max_workers_drawn()
+	## Cold slows workers visually — dimmer / tighter wing beat before winter.
+	var cold_dim: float = 0.0
+	if world.winter_time == null and world.cold > 0.1:
+		cold_dim = clampf(world.cold * 0.35, 0.0, 0.4)
 	for w in world.workers:
 		if drawn >= max_w:
 			break
 		if not SwarmGfx.iso_in_view(Iso.world_to_iso(w.x, w.y), _view):
 			continue
+		var clustered: bool = int(w.flower) == -3
 		var dir := "SE"
 		if w.outbound and w.flower >= 0 and w.flower < world.flowers.size():
 			var f = world.flowers[w.flower]
 			dir = _bee_dir(f.x - w.x, f.y - w.y)
+		elif clustered:
+			dir = _bee_dir(world.cx - w.x, world.cy - w.y)
 		elif not w.outbound:
 			dir = _bee_dir(world.cx - w.x, world.cy - w.y)
 		## Carrying nectar uses letavka (same bee) — pollen FX marks cargo; keep sprite readable.
@@ -1113,14 +1250,23 @@ func _draw_workers() -> void:
 		if atlas.has(name):
 			## Build 22: 3/4 letavka + hover/walk anim polish (overview drones).
 			var ph: float = float(w.phase)
-			var in_flight: bool = int(w.flower) >= 0 or int(w.flower) == -2
-			var wing: float = 1.0 + (0.055 if in_flight else 0.028) * sin(ph * 14.0 + world.time * 2.0)
+			var in_flight: bool = int(w.flower) >= 0 or int(w.flower) == -2 or clustered
+			var wing_rate: float = 14.0 if in_flight else 7.0
+			if cold_dim > 0.0 and not clustered:
+				wing_rate *= lerpf(1.0, 0.55, cold_dim / 0.4)
+			var wing: float = 1.0 + (0.055 if in_flight else 0.028) * sin(ph * wing_rate + world.time * 2.0)
 			var bob: float = sin(ph * (9.0 if in_flight else 7.0) + world.time) * (2.6 if in_flight else 1.6)
 			var lift_y: float = (-9.0 if in_flight else -3.0) + bob
 			var sc: float = (0.58 if not _use_2x else 0.29) * wing
+			if clustered:
+				sc *= 1.06
 			var mod := Color(1.08, 1.0, 0.88, 0.96)
 			if w.carrying:
 				mod = Color(1.18, 1.08, 0.72, 0.98)
+			if cold_dim > 0.0 and not clustered:
+				mod = mod.lerp(Color(0.7, 0.72, 0.78, 0.9), cold_dim)
+			if clustered and world.cluster_warm > 0.1:
+				mod = mod.lerp(Color(1.35, 1.05, 0.55, 1.0), world.cluster_warm * 0.45)
 			if SwarmGfx.soft_shadows():
 				_draw_soft_shadow(w.x, w.y, 6.5 if in_flight else 5.0, 0.2 if in_flight else 0.24)
 			_blit(name, w.x, w.y, sc, mod, Vector2(0.0, lift_y))
@@ -1236,11 +1382,7 @@ func _draw_ending_planet() -> void:
 		var pa: float = 0.2 + 0.45 * abs(sin(world.time * 2.4)) * float(world.royal_cell.glow)
 		draw_line(tip, p2, Color(1.15, 0.9, 0.4, pa * 0.4), 2.4, true)
 		draw_line(tip, p2, Color(1.35, 1.1, 0.55, pa), 1.1, true)
-	## World-space SWARM logo beat (pro_v3) — fades in before the stats panel.
-	var logo_a: float = clampf((world.orbit_t - 0.55) / 1.6, 0.0, 1.0)
-	var logo_key := "logo" if ProArt.has(pro, "logo") else "swarm_logo"
-	if logo_a > 0.02 and ProArt.has(pro, logo_key):
-		ProArt.blit(self, pro, logo_key, cam + Vector2(0, -vp.y * 0.36 / z), 0.34 if logo_key == "logo" else 0.42, Color(1, 1, 1, logo_a))
+	## Logo lives only on EndPanel (Honza nit — no redundant world-space title).
 
 
 func _draw_guidance() -> void:
