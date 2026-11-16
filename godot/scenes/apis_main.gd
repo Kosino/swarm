@@ -10,6 +10,7 @@ const ProArt = preload("res://ui/pro_art.gd")
 const STheme = preload("res://ui/swarm_theme.gd")
 const Juice = preload("res://ui/juice.gd")
 const Diegetic = preload("res://ui/diegetic.gd")
+const OrganicHud = preload("res://ui/organic_hud.gd")
 
 @onready var camera: Camera2D = $Camera2D
 @onready var hud: CanvasLayer = $HUD
@@ -36,6 +37,7 @@ var sequences: Dictionary = {}
 var pro: Dictionary = {}
 var _atm: Dictionary = {}
 var _die: Dictionary = {}
+var _org: Dictionary = {}
 var _use_2x: bool = false
 var _orbit_done: bool = false
 var _other_planet_a: float = 0.0
@@ -118,6 +120,7 @@ func _ready() -> void:
 	## Diegetic chrome always on; debug Panel only via F1 / --demo.
 	hud.visible = true
 	_die = Diegetic.mount(hud, "apis")
+	_org = OrganicHud.mount(hud, "apis")
 	Diegetic.set_debug_visible(_die, demo_on)
 	_had_planted = world.planted
 	_prev_chambers = world.chambers.size()
@@ -262,6 +265,14 @@ func _refresh_hud() -> void:
 	else:
 		Diegetic.refresh_ending(_die, "apis", 0.0, [])
 		Diegetic.refresh_tooltip(_die, _hover_info, _mouse_screen)
+	OrganicHud.refresh(
+		_org,
+		"apis",
+		float(world.time),
+		OrganicHud.apis_fill(world),
+		OrganicHud.apis_roles(world),
+		world.mvp_end_time != null
+	)
 	if not demo_on:
 		return
 	var m = world.metrics()
