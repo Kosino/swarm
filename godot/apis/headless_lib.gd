@@ -261,6 +261,20 @@ func _run_playthrough(seed_num: int) -> Dictionary:
 				mid_trail_at = world.metrics().time
 				sim_t = world.metrics().time
 				continue
+			## Mid-game drought relief (dew trail to meadow) before winter cluster.
+			if m.droughtTime != null and not bool(m.get("droughtRelieved", false)) and m.winterTime == null and m.time >= 640.0:
+				var dest_d = snap.meadow2 if snap.meadow2 != null else {"x": hive2.x + 200.0, "y": hive2.y - 60.0}
+				var pts_d: Array = []
+				for i_d in range(22):
+					var td: float = float(i_d) / 21.0
+					pts_d.append({
+						"x": hive2.x + (dest_d.x - hive2.x) * td,
+						"y": hive2.y + (dest_d.y - hive2.y) * td,
+					})
+				_slow_trail(world, pts_d, dt)
+				mid_trail_at = world.metrics().time
+				sim_t = world.metrics().time
+				continue
 			## Age 3 trails / hold after dusk hint.
 			if m.hintTime != null and m.winterTime == null and m.time >= 662.0:
 				var pts_w: Array = []
@@ -308,7 +322,19 @@ func _run_playthrough(seed_num: int) -> Dictionary:
 					sim_t = world.metrics().time
 					continue
 
-		## Fast-forward quiet stretches before Age 3 gates.
+		## Fast-forward quiet stretches before Age 3 gates (pause at drought / dew windows).
+		if m.hintTime != null and m.droughtTime == null and m.time < 623.0:
+			var jf_d0 := minf(623.0 - m.time, 4.0)
+			if jf_d0 > 0.0:
+				world.update(jf_d0)
+				sim_t = world.metrics().time
+				continue
+		if m.droughtTime != null and not bool(m.get("droughtRelieved", false)) and m.winterTime == null and m.time < 638.0:
+			var jf_d1 := minf(638.0 - m.time, 4.0)
+			if jf_d1 > 0.0:
+				world.update(jf_d1)
+				sim_t = world.metrics().time
+				continue
 		if m.hintTime != null and m.winterTime == null and m.time < 660.0:
 			var jf := minf(660.0 - m.time, 4.0)
 			if jf > 0.0:

@@ -192,6 +192,8 @@ func _process(dt: float) -> void:
 	Atm.sync_light(_atm, h_iso, 0.4 + world.core_pulse * 0.28 + world.brass_sheen * 0.2)
 	## Presentational dusk ramp from ~10:00 even if hint beat is late — readable 11:00 dusk.
 	var dusk_v: float = maxf(world.dusk, clampf((world.time - 560.0) / 140.0, 0.0, 1.0) * 0.85)
+	## Drought heat haze leans dusk warm without replacing the winter/dusk beat.
+	dusk_v = maxf(dusk_v, world.drought * 0.45)
 	Atm.set_dusk(_atm, dusk_v)
 	if _atm.has("dust"):
 		(_atm["dust"] as Node2D).global_position = h_iso
@@ -700,6 +702,10 @@ func _plast_stage(ch: Dictionary) -> String:
 	return "rozestaveny"
 
 
+func _chamber_role(ch: Dictionary) -> String:
+	return str(ch.get("role", "comb"))
+
+
 func _draw_chambers() -> void:
 	if not world.planted:
 		var kn := "apis2_kamen_zarivy" if world.pulse_hex_glow > 0.7 else "apis2_kamen_rozestaveny"
@@ -746,37 +752,73 @@ func _draw_chambers() -> void:
 			grow = minf(grow, 0.55 + 0.2 * _hash2(int(ch.q) + 3, int(ch.r) + 9))
 		elif float(it.ring) <= 0.8 and (world.brass_sheen > 0.2 or world.core_pulse > 0.4):
 			stage = "zarivy"
+		var role := _chamber_role(ch)
+		## Age-3 / late mid-game building variety from existing atlas + pro_v3.
 		var pname := "apis2_plast_%s" % stage
+		if role == "workshop" and not rim:
+			pname = "apis2_kamen_zarivy" if world.brass_sheen > 0.2 else "apis2_kamen_dostaveny"
 		var mod := Color(1, 1, 1, 0.4 + grow * 0.55)
 		if ch.amber > 0.05 and not rim:
 			mod = mod.lerp(Color(1.15, 0.9, 0.45, 0.95), ch.amber * 0.4)
 		if world.brass_sheen > 0.0 and not rim:
 			mod = mod.lerp(Color(1.2, 0.95, 0.55, 1.0), world.brass_sheen * 0.35)
+		if role == "workshop" and not rim:
+			mod = mod.lerp(Color(1.25, 0.85, 0.45, 1.0), 0.35 + world.brass_sheen * 0.25)
+		if role == "nursery" and not rim:
+			mod = mod.lerp(Color(1.05, 0.95, 1.15, 1.0), 0.2 + ch.pulse * 0.15)
+		if role == "honey" and not rim:
+			mod = mod.lerp(Color(1.35, 1.1, 0.45, 1.0), 0.3 + ch.amber * 0.25)
 		if world.rust_chamber != null and world._hex_key(ch.q, ch.r) == world.rust_chamber and world.winter_time == null:
 			mod = mod.lerp(Color(0.85, 0.45, 0.3, 0.95), 0.45 + world.cold * 0.3)
+		if world.drought > 0.2 and world.winter_time == null and not rim:
+			mod = mod.lerp(Color(0.95, 0.75, 0.5, 0.95), world.drought * 0.22)
 		_draw_soft_shadow(p.x, p.y, 8.0 + grow * 4.0, 0.2 + grow * 0.1)
 		if atlas.has(pname):
 			var core_boost: float = 1.18 - clampf(float(it.ring) / maxf(max_ring, 1.0), 0.0, 1.0) * 0.35
 			var psz: float = sc * (0.62 + grow * 0.38) * float(it.sc_jit) * core_boost
 			if rim:
 				psz *= 0.78
+			if role == "workshop":
+				psz *= 0.92
+			if role == "honey":
+				psz *= 1.08
 			_blit_rot(pname, p.x, p.y, psz, mod, float(it.rot))
-			## Stack height only near center — dome reads as tallest mound.
-			if (world.floor2 or world.floor3) and float(it.ring) < max_ring * 0.55 and not rim:
+			## Stack height: honey towers + central dome floors.
+			var want_stack: bool = (
+				(role == "honey" and not rim)
+				or ((world.floor2 or world.floor3) and float(it.ring) < max_ring * 0.55 and not rim and role != "workshop")
+			)
+			if want_stack:
 				var stack: Vector2 = Vector2.ZERO
-				var e1: Dictionary = atlas[pname]
-				if e1.has("stack_offset"):
-					stack = e1.stack_offset * psz
+				var stack_src := pname if atlas.has(pname) and atlas[pname].has("stack_offset") else "apis2_plast_dostaveny"
+				if role == "workshop":
+					stack_src = "apis2_plast_dostaveny"
+				if atlas.has(stack_src) and atlas[stack_src].has("stack_offset"):
+					stack = atlas[stack_src].stack_offset * psz
 				elif atlas.has("apis2_plast_dostaveny") and atlas["apis2_plast_dostaveny"].has("stack_offset"):
 					stack = atlas["apis2_plast_dostaveny"].stack_offset * psz
-				var upper := "apis2_plast_zarivy" if stage == "zarivy" else "apis2_plast_dostaveny"
+				var upper := "apis2_plast_zarivy" if (stage == "zarivy" or role == "honey") else "apis2_plast_dostaveny"
 				if atlas.has(upper):
-					_blit_rot(upper, p.x, p.y, psz, mod, float(it.rot) * 0.5, stack)
-					if world.floor3 and float(it.ring) < 1.2:
-						_blit_rot(upper, p.x, p.y, psz, mod, float(it.rot) * -0.35, stack * 1.85)
+					_blit_rot(upper, p.x, p.y, psz * (1.05 if role == "honey" else 1.0), mod, float(it.rot) * 0.5, stack)
+					if role == "honey" or (world.floor3 and float(it.ring) < 1.2):
+						_blit_rot(upper, p.x, p.y, psz * (0.92 if role == "honey" else 1.0), mod, float(it.rot) * -0.35, stack * (2.15 if role == "honey" else 1.85))
+				if role == "honey" and atlas.has("apis2_overlay_med"):
+					_blit("apis2_overlay_med", p.x, p.y, psz * 0.85, Color(1.4, 1.15, 0.55, 0.35 + ch.amber * 0.35), stack * 2.0 + Vector2(0, -6))
+			if role == "nursery" and not rim and ch.hatched:
+				if ProArt.has(pro, "apis_royal_cell"):
+					ProArt.blit(
+						self, pro, "apis_royal_cell",
+						Iso.world_to_iso(p.x, p.y) + Vector2(0, -10),
+						0.22 if not _use_2x else 0.11,
+						Color(1.15, 1.05, 0.85, 0.35 + ch.pulse * 0.25)
+					)
+				elif atlas.has("apis2_overlay_kvet"):
+					_blit("apis2_overlay_kvet", p.x, p.y, psz * 0.55, Color(1.2, 1.05, 0.8, 0.35 + ch.pulse * 0.2), Vector2(0, -8))
 		else:
 			var half: float = C.HEX * 0.45 * (0.55 + grow * 0.45)
 			var floor_mul: float = 1.35 if world.floor3 else (1.15 if world.floor2 else 1.0)
+			if role == "honey":
+				floor_mul *= 1.25
 			_draw_box(p.x, p.y, half, Color(0.7, 0.55, 0.35, 0.55 + grow * 0.35), half * 0.35 * world.hive_scale * floor_mul)
 	if world.core != null:
 		var ul := "apis2_ul_zarivy" if world.core_pulse > 0.4 or world.brass_sheen > 0.3 else "apis2_ul_dostaveny"

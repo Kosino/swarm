@@ -81,6 +81,9 @@ var brass_time = null
 var royal_time = null
 var seeds_time = null
 var mvp_end_time = null
+var drought_time = null
+var drought_relieved: bool = false
+var drought: float = 0.0 ## 0..1 heat / wilt intensity
 var dusk: float = 0.0
 var rust_chamber = null
 var floor2: bool = false
@@ -95,6 +98,7 @@ var age3_hold_t: float = 0.0
 var orbit_t: float = 0.0
 var dim_all: float = 0.0
 var worker_slow: float = 1.0
+var buildings_specialized: bool = false
 
 var idle_t: float = 0.0
 var show_ghost: bool = false
@@ -408,6 +412,80 @@ func _sfx_chime() -> void:
 	SwarmSfx.play_chime()
 
 
+func _make_chamber(q: int, r: int, opts: Dictionary = {}) -> Dictionary:
+	return {
+		"q": q,
+		"r": r,
+		"grow": float(opts.get("grow", 0.0)),
+		"growDur": float(opts.get("growDur", C.BUILD_DUR)),
+		"amber": float(opts.get("amber", 0.0)),
+		"hatchT": float(opts.get("hatchT", 0.0)),
+		"hatched": bool(opts.get("hatched", false)),
+		"pulse": float(opts.get("pulse", 0.0)),
+		"role": str(opts.get("role", C.ROLE_COMB)),
+	}
+
+
+func _chamber_ring(q: int, r: int) -> float:
+	return sqrt(float(q * q + r * r + q * r))
+
+
+func _specialize_buildings(force_workshops: bool = false) -> void:
+	## Late mid-game / Age 3: assign líheň, medárna, dílna using existing sprites only.
+	if chambers.is_empty():
+		return
+	var max_ring := 0.0
+	for ch0 in chambers.values():
+		if ch0.grow < 1.0:
+			continue
+		max_ring = maxf(max_ring, _chamber_ring(ch0.q, ch0.r))
+	var honey_budget := 0
+	var nursery_budget := 0
+	var workshop_budget := 0
+	var honey_max := 3
+	var nursery_max := 4
+	var workshop_max := 3 if (force_workshops or brass_time != null) else 0
+	## Prefer keeping existing specialized roles when re-running after brass/royal.
+	for ch in chambers.values():
+		if ch.grow < 1.0:
+			continue
+		match str(ch.get("role", C.ROLE_COMB)):
+			C.ROLE_HONEY:
+				honey_budget += 1
+			C.ROLE_NURSERY:
+				nursery_budget += 1
+			C.ROLE_WORKSHOP:
+				workshop_budget += 1
+	var items: Array = []
+	for ch in chambers.values():
+		if ch.grow < 1.0:
+			continue
+		items.append(ch)
+	items.sort_custom(func(a, b): return _chamber_ring(a.q, a.r) < _chamber_ring(b.q, b.r))
+	for ch in items:
+		var role := str(ch.get("role", C.ROLE_COMB))
+		if role != C.ROLE_COMB:
+			continue
+		var ring := _chamber_ring(ch.q, ch.r)
+		if nursery_budget < nursery_max and ring <= 1.15:
+			ch.role = C.ROLE_NURSERY
+			nursery_budget += 1
+			ch.pulse = maxf(ch.pulse, 0.55)
+			continue
+		if honey_budget < honey_max and ring > 1.15 and ring < maxf(2.0, max_ring * 0.55) and ch.amber >= 0.2:
+			ch.role = C.ROLE_HONEY
+			honey_budget += 1
+			ch.amber = maxf(ch.amber, 0.55)
+			ch.pulse = maxf(ch.pulse, 0.45)
+			continue
+		if workshop_budget < workshop_max and ring >= maxf(1.6, max_ring * 0.45):
+			ch.role = C.ROLE_WORKSHOP
+			workshop_budget += 1
+			ch.pulse = maxf(ch.pulse, 0.7)
+			continue
+	buildings_specialized = true
+
+
 func _try_build(q: int, r: int) -> bool:
 	if not planted:
 		if q != 0 or r != 0:
@@ -428,10 +506,9 @@ func _try_build(q: int, r: int) -> bool:
 					bd = d
 					best = cell
 		var key := _hex_key(best.x, best.y)
-		chambers[key] = {
-			"q": best.x, "r": best.y, "grow": 0.0, "growDur": C.BUILD_DUR_FIRST,
-			"amber": 0.0, "hatchT": 0.0, "hatched": false, "pulse": 0.0,
-		}
+		chambers[key] = _make_chamber(best.x, best.y, {
+			"growDur": C.BUILD_DUR_FIRST,
+		})
 		wax = maxf(0.0, wax - C.WAX_COST)
 		return true
 	if not _is_adjacent_to_hive(q, r):
@@ -442,10 +519,7 @@ func _try_build(q: int, r: int) -> bool:
 		shiver = C.SHIVER_DUR
 		_sfx_bzz()
 		return false
-	chambers[_hex_key(q, r)] = {
-		"q": q, "r": r, "grow": 0.0, "growDur": C.BUILD_DUR,
-		"amber": 0.0, "hatchT": 0.0, "hatched": false, "pulse": 0.0,
-	}
+	chambers[_hex_key(q, r)] = _make_chamber(q, r)
 	wax = maxf(0.0, wax - C.WAX_COST)
 	_sfx_soft("gesture")
 	SwarmSfx.play_place(true)
@@ -629,6 +703,13 @@ func _classify_trail(pts: Array) -> String:
 			return "join"
 		if swarm_time == null:
 			return "highway"
+	## Mid-game drought relief: trail toward distant meadow for dew.
+	if (
+		drought_time != null and not drought_relieved and winter_time == null and meadow2 != null
+		and G.hypot(last.x - meadow2.x, last.y - meadow2.y) < maxf(110.0, C.TRAIL_FINISH_PX * 1.8)
+		and length >= C.TRAIL_MIN_LEN * 0.7
+	):
+		return "dew"
 	## Age 3: winter cluster (loop near hive) then brass trail to rust machine.
 	if hint_time != null and winter_time == null and da > 1.0 and mean_dist < 170.0:
 		return "winter"
@@ -689,10 +770,9 @@ func _build_along_trail(trail: Dictionary, target_built: float) -> void:
 			if not chambers.has(key):
 				var adj := _is_adjacent_to_hive(q, r)
 				if adj and wax >= C.WAX_MIN * 0.5:
-					chambers[key] = {
-						"q": q, "r": r, "grow": 0.0, "growDur": C.BUILD_DUR * 0.75,
-						"amber": 0.15, "hatchT": 0.0, "hatched": false, "pulse": 0.4,
-					}
+					chambers[key] = _make_chamber(q, r, {
+						"growDur": C.BUILD_DUR * 0.75, "amber": 0.15, "pulse": 0.4,
+					})
 					wax = maxf(0.15, wax - C.WAX_COST * 0.55)
 				elif not adj:
 					var best = null
@@ -711,10 +791,9 @@ func _build_along_trail(trail: Dictionary, target_built: float) -> void:
 								bd = d2
 								best = n
 					if best != null and wax >= C.WAX_MIN * 0.4:
-						chambers[_hex_key(best.x, best.y)] = {
-							"q": best.x, "r": best.y, "grow": 0.0, "growDur": C.BUILD_DUR * 0.7,
-							"amber": 0.2, "hatchT": 0.0, "hatched": false, "pulse": 0.5,
-						}
+						chambers[_hex_key(best.x, best.y)] = _make_chamber(best.x, best.y, {
+							"growDur": C.BUILD_DUR * 0.7, "amber": 0.2, "pulse": 0.5,
+						})
 						wax = maxf(0.15, wax - C.WAX_COST * 0.5)
 		trail.built = minf(1.0, trail.built + C.TRAIL_BUILD_SPACING / maxf(total, 1.0))
 		if trail.built >= target_built or trail.built >= 1.0:
@@ -764,10 +843,10 @@ func _activate_trail(pts: Array) -> bool:
 						near = true
 						break
 				if near:
-					chambers[k] = {
-						"q": n.x, "r": n.y, "grow": 0.0, "growDur": C.BUILD_DUR * 0.85,
-						"amber": 0.25, "hatchT": 0.0, "hatched": false, "pulse": 0.6,
-					}
+					chambers[k] = _make_chamber(n.x, n.y, {
+						"growDur": C.BUILD_DUR * 0.85, "amber": 0.25, "pulse": 0.6,
+					})
+		_specialize_buildings()
 	elif kind == "highway" and swarm_time == null:
 		swarm_time = time
 		_bump_perform("swarm")
@@ -814,6 +893,8 @@ func _activate_trail(pts: Array) -> bool:
 				"ph": _rnd() * 6.0, "bloom": 0.7, "visits": 0, "hint": 0.0,
 				"variant": FLOWER_VARS[flowers.size() % 3], "tree": false,
 			})
+	elif kind == "dew" and drought_time != null and not drought_relieved:
+		_trigger_drought_relief()
 	elif kind == "winter" and winter_time == null:
 		_trigger_winter()
 	elif kind == "brass" and brass_time == null:
@@ -855,6 +936,54 @@ func _trigger_dusk_hint() -> void:
 	if far != null:
 		rust_chamber = _hex_key(far.q, far.r)
 	_spawn_rust_machine()
+	_specialize_buildings()
+
+
+func _trigger_drought() -> void:
+	## GDD mid-game „Sucho“: wilted meadows, scarce nectar — relieved by dew trail.
+	if drought_time != null:
+		return
+	drought_time = time
+	_bump_perform("drought")
+	_sfx_soft("wind")
+	drought = 1.0
+	meadow_bloom = minf(meadow_bloom, 0.15)
+	for f in flowers:
+		if f.get("tree", false):
+			continue
+		f.bloom = minf(f.bloom, 0.2)
+	worker_slow = minf(worker_slow, 0.62)
+	_specialize_buildings()
+
+
+func _trigger_drought_relief() -> void:
+	if drought_relieved or drought_time == null:
+		return
+	drought_relieved = true
+	_bump_perform("dew")
+	_sfx_soft("open")
+	_sfx_chime()
+	drought = maxf(0.0, drought - 0.75)
+	meadow_bloom = maxf(meadow_bloom, 0.7)
+	for f in flowers:
+		if f.get("tree", false):
+			continue
+		f.bloom = minf(1.0, f.bloom + 0.45)
+	## Dew trail seeds a honey store near the hive edge.
+	var placed := false
+	for ch in chambers.values():
+		if ch.grow < 1.0:
+			continue
+		if str(ch.get("role", C.ROLE_COMB)) != C.ROLE_COMB:
+			continue
+		if _chamber_ring(ch.q, ch.r) >= 1.4:
+			ch.role = C.ROLE_HONEY
+			ch.amber = maxf(ch.amber, 0.7)
+			ch.pulse = 1.0
+			placed = true
+			break
+	if not placed:
+		_specialize_buildings()
 
 
 func _trigger_winter() -> void:
@@ -865,6 +994,7 @@ func _trigger_winter() -> void:
 	_sfx_soft("dual")
 	_sfx_dum(true)
 	cold = 0.0
+	drought = 0.0
 	worker_slow = 1.0
 	dusk = maxf(0.0, dusk - 0.5)
 	core_pulse = 1.0
@@ -894,6 +1024,8 @@ func _trigger_brass() -> void:
 	for f in flowers:
 		if not f.get("tree", false):
 			f.bloom = minf(1.0, f.bloom + 0.4)
+	## Scrap metal founds brass workshops (dílny).
+	_specialize_buildings(true)
 
 
 func _trigger_royal() -> void:
@@ -910,6 +1042,14 @@ func _trigger_royal() -> void:
 	royal_cell = {"x": cx, "y": cy - 18.0, "glow": 0.6, "capped": false, "queen": 0.0}
 	if second_hive != null:
 		second_hive.pulse = 1.0
+	## Royal cell era densifies nurseries (líhně) near the core.
+	for ch in chambers.values():
+		if ch.grow < 1.0:
+			continue
+		if _chamber_ring(ch.q, ch.r) <= 1.15:
+			ch.role = C.ROLE_NURSERY
+			ch.pulse = 1.0
+	_specialize_buildings(true)
 
 
 func _trigger_seeds_hint() -> void:
@@ -1177,12 +1317,27 @@ func update(dt: float) -> void:
 		meadow_bloom = maxf(0.4, meadow_bloom - dt * 0.02)
 	if join_time != null and hint_time == null and time >= 595.0:
 		_trigger_dusk_hint()
+	## GDD Sucho — after dusk hint, before winter; does not shift median gates.
+	if hint_time != null and drought_time == null and time >= C.WOW_DROUGHT:
+		_trigger_drought()
+	if drought > 0.0 and winter_time == null and not drought_relieved:
+		drought = minf(1.0, drought + dt * 0.04)
+		meadow_bloom = maxf(0.05, meadow_bloom - dt * 0.03)
+		for f in flowers:
+			if f.get("tree", false):
+				continue
+			f.bloom = maxf(0.08, f.bloom - dt * 0.025)
+		worker_slow = minf(worker_slow, lerpf(0.62, 0.42, drought))
+	elif drought > 0.0 and drought_relieved:
+		drought = maxf(0.0, drought - dt * 0.08)
 	if dusk > 0.0 and winter_time == null:
 		dusk = minf(1.0, dusk + dt / C.HINT_DUR)
 		cold = minf(1.0, cold + dt * 0.05)
 		worker_slow = lerpf(0.55, 0.35, cold)
 	if brass_sheen > 0.0:
 		brass_sheen = maxf(0.4, brass_sheen - dt * 0.015)
+	if floor2 and not buildings_specialized and time >= C.WOW_FLOOR2 + 8.0:
+		_specialize_buildings()
 	## Age 3 hold on core → royal cell / third floor.
 	if brass_time != null and royal_time == null and dragging and time >= C.WOW_ROYAL - 8.0:
 		if G.hypot(hx - cx, hy - cy) < C.HEX * 2.2:
@@ -1367,6 +1522,8 @@ func metrics() -> Dictionary:
 		"swarmTime": swarm_time,
 		"joinTime": join_time,
 		"hintTime": hint_time,
+		"droughtTime": drought_time,
+		"droughtRelieved": drought_relieved,
 		"winterTime": winter_time,
 		"brassTime": brass_time,
 		"royalTime": royal_time,
@@ -1377,8 +1534,16 @@ func metrics() -> Dictionary:
 
 func snapshot() -> Dictionary:
 	var chs: Array = []
+	var role_counts := {
+		C.ROLE_COMB: 0, C.ROLE_NURSERY: 0, C.ROLE_WORKSHOP: 0, C.ROLE_HONEY: 0,
+	}
 	for c in chambers.values():
-		chs.append({"q": c.q, "r": c.r, "grow": c.grow, "hatched": c.hatched})
+		var role := str(c.get("role", C.ROLE_COMB))
+		chs.append({"q": c.q, "r": c.r, "grow": c.grow, "hatched": c.hatched, "role": role})
+		if role_counts.has(role):
+			role_counts[role] = int(role_counts[role]) + 1
+		else:
+			role_counts[role] = 1
 	var fls: Array = []
 	for f in flowers:
 		fls.append({"x": f.x, "y": f.y, "tree": f.get("tree", false), "bloom": f.bloom})
@@ -1388,6 +1553,7 @@ func snapshot() -> Dictionary:
 	return {
 		"core": {"x": core.x, "y": core.y} if core != null else null,
 		"chambers": chs,
+		"roleCounts": role_counts,
 		"flowers": fls,
 		"workers": wks,
 		"wax": wax,
@@ -1395,6 +1561,7 @@ func snapshot() -> Dictionary:
 		"ringClosed": ring_closed,
 		"traffic": traffic,
 		"shivering": shiver,
+		"drought": drought,
 		"meadow2": {"x": meadow2.x, "y": meadow2.y} if meadow2 != null else null,
 		"secondHive": {"x": second_hive.x, "y": second_hive.y} if second_hive != null else null,
 		"rustMachine": {"x": rust_machine.x, "y": rust_machine.y, "r": rust_machine.r, "looted": rust_machine.looted} if rust_machine != null else null,
@@ -1501,6 +1668,13 @@ func guidance() -> Dictionary:
 			"from": {"x": hc.x, "y": hc.y, "r": 12.0},
 			"to": {"x": second_hive.x, "y": second_hive.y, "r": 22.0},
 		}
+	if drought_time != null and not drought_relieved and winter_time == null and meadow2 != null:
+		return {
+			"stepId": "drought", "label": "Stopa k rose na louce",
+			"target": {"x": meadow2.x, "y": meadow2.y, "r": 28.0}, "target2": null, "ghost": "trail",
+			"from": {"x": hc.x, "y": hc.y, "r": 12.0},
+			"to": {"x": meadow2.x, "y": meadow2.y, "r": 28.0},
+		}
 	if hint_time != null and winter_time == null:
 		return {
 			"stepId": "winter", "label": "Stopa kolem úlu",
@@ -1552,6 +1726,7 @@ func poll_wows() -> Array:
 	_emit_wow("swarm", "Rojení", swarm_time)
 	_emit_wow("join", "Spojení úlů", join_time)
 	_emit_wow("hint", "Soumrak", hint_time)
+	_emit_wow("drought", "Sucho", drought_time)
 	_emit_wow("winter", "Zimní chomáč", winter_time)
 	_emit_wow("brass", "Mosazný lesk", brass_time)
 	_emit_wow("royal", "Královská buňka", royal_time)
@@ -1587,10 +1762,10 @@ func bootstrap_start5() -> void:
 	_try_build(0, 0)
 	time = C.START5_T
 	for cell in RING:
-		chambers[_hex_key(cell.x, cell.y)] = {
-			"q": cell.x, "r": cell.y, "grow": 1.0, "growDur": C.BUILD_DUR,
-			"amber": 0.4, "hatchT": C.HATCH_DELAY, "hatched": true, "pulse": 0.0,
-		}
+		chambers[_hex_key(cell.x, cell.y)] = _make_chamber(cell.x, cell.y, {
+			"grow": 1.0, "amber": 0.4, "hatchT": C.HATCH_DELAY, "hatched": true,
+			"role": C.ROLE_NURSERY,
+		})
 	ring_closed = true
 	ring_time = 135.0
 	hive_scale = 1.12
@@ -1608,14 +1783,14 @@ func bootstrap_start5() -> void:
 			var k := _hex_key(n.x, n.y)
 			if chambers.has(k):
 				continue
-			chambers[k] = {
-				"q": n.x, "r": n.y, "grow": 1.0, "growDur": C.BUILD_DUR,
-				"amber": 0.25, "hatchT": C.HATCH_DELAY, "hatched": true, "pulse": 0.0,
-			}
+			chambers[k] = _make_chamber(n.x, n.y, {
+				"grow": 1.0, "amber": 0.25, "hatchT": C.HATCH_DELAY, "hatched": true,
+			})
 			if _built_count() >= C.TREE_MIN_CHAMBERS + 4:
 				break
 		if _built_count() >= C.TREE_MIN_CHAMBERS + 4:
 			break
+	_specialize_buildings()
 	first_worker = 35.0
 	first_nectar = 80.0
 	traffic = true
@@ -1656,10 +1831,9 @@ func stress_fill(worker_count: int) -> void:
 	for cell in RING:
 		var k := _hex_key(cell.x, cell.y)
 		if not chambers.has(k):
-			chambers[k] = {
-				"q": cell.x, "r": cell.y, "grow": 1.0, "growDur": C.BUILD_DUR,
-				"amber": 0.3, "hatchT": C.HATCH_DELAY, "hatched": true, "pulse": 0.0,
-			}
+			chambers[k] = _make_chamber(cell.x, cell.y, {
+				"grow": 1.0, "amber": 0.3, "hatchT": C.HATCH_DELAY, "hatched": true,
+			})
 		else:
 			chambers[k].grow = 1.0
 			chambers[k].hatched = true
@@ -1671,10 +1845,9 @@ func stress_fill(worker_count: int) -> void:
 			var k2 := _hex_key(n.x, n.y)
 			if chambers.has(k2):
 				continue
-			chambers[k2] = {
-				"q": n.x, "r": n.y, "grow": 1.0, "growDur": C.BUILD_DUR,
-				"amber": 0.2, "hatchT": C.HATCH_DELAY, "hatched": true, "pulse": 0.0,
-			}
+			chambers[k2] = _make_chamber(n.x, n.y, {
+				"grow": 1.0, "amber": 0.2, "hatchT": C.HATCH_DELAY, "hatched": true,
+			})
 	var flower_idx := -1
 	for i in range(flowers.size()):
 		if not flowers[i].get("tree", false):
