@@ -882,14 +882,17 @@ func _draw_chambers() -> void:
 		if SwarmGfx.soft_shadows():
 			_draw_soft_shadow(p.x, p.y, 8.0 + grow * 4.0, 0.2 + grow * 0.1)
 		if atlas.has(pname):
-			var core_boost: float = 1.18 - clampf(float(it.ring) / maxf(max_ring, 1.0), 0.0, 1.0) * 0.35
+			var core_boost: float = 1.22 - clampf(float(it.ring) / maxf(max_ring, 1.0), 0.0, 1.0) * 0.38
 			var psz: float = sc * (0.62 + grow * 0.38) * float(it.sc_jit) * core_boost
 			if rim:
 				psz *= 0.78
 			if role == "workshop":
-				psz *= 0.92
+				## Blocky copper workshop pads — overview peripheral mass.
+				psz *= 1.05
+				mod = mod.lerp(Color(1.15, 0.78, 0.48, 1.0), 0.28)
 			if role == "honey":
-				psz *= 1.08
+				## Honeycomb tower silhouette — taller amber column (koncept).
+				psz *= 1.18
 			_blit_rot(pname, p.x, p.y, psz, mod, float(it.rot))
 			## Stack height: honey towers + central dome floors.
 			var want_stack: bool = (
@@ -905,20 +908,26 @@ func _draw_chambers() -> void:
 					stack = atlas[stack_src].stack_offset * psz
 				elif atlas.has("apis2_plast_dostaveny") and atlas["apis2_plast_dostaveny"].has("stack_offset"):
 					stack = atlas["apis2_plast_dostaveny"].stack_offset * psz
+				## Stretch vertical stack for overview-like tower reading.
+				if role == "honey":
+					stack *= 1.22
 				var upper := "apis2_plast_zarivy" if (stage == "zarivy" or role == "honey") else "apis2_plast_dostaveny"
 				if atlas.has(upper):
-					_blit_rot(upper, p.x, p.y, psz * (1.05 if role == "honey" else 1.0), mod, float(it.rot) * 0.5, stack)
+					_blit_rot(upper, p.x, p.y, psz * (1.1 if role == "honey" else 1.0), mod, float(it.rot) * 0.5, stack)
 					if role == "honey" or (world.floor3 and float(it.ring) < 1.2):
-						_blit_rot(upper, p.x, p.y, psz * (0.92 if role == "honey" else 1.0), mod, float(it.rot) * -0.35, stack * (2.15 if role == "honey" else 1.85))
+						_blit_rot(upper, p.x, p.y, psz * (0.95 if role == "honey" else 1.0), mod, float(it.rot) * -0.35, stack * (2.45 if role == "honey" else 1.85))
+					if role == "honey" and world.floor2:
+						_blit_rot(upper, p.x, p.y, psz * 0.82, mod, float(it.rot) * 0.2, stack * 3.35)
 				if role == "honey" and atlas.has("apis2_overlay_med"):
-					_blit("apis2_overlay_med", p.x, p.y, psz * 0.85, Color(1.4, 1.15, 0.55, 0.35 + ch.amber * 0.35), stack * 2.0 + Vector2(0, -6))
+					_blit("apis2_overlay_med", p.x, p.y, psz * 0.95, Color(1.45, 1.18, 0.5, 0.4 + ch.amber * 0.4), stack * 2.4 + Vector2(0, -8))
 			if role == "nursery" and not rim and ch.hatched:
+				## Lantern / kukla silhouette on nurseries (overview peripheral glow).
 				if ProArt.has(pro, "apis_royal_cell"):
 					ProArt.blit(
 						self, pro, "apis_royal_cell",
-						Iso.world_to_iso(p.x, p.y) + Vector2(0, -10),
-						0.22 if not _use_2x else 0.11,
-						Color(1.15, 1.05, 0.85, 0.35 + ch.pulse * 0.25)
+						Iso.world_to_iso(p.x, p.y) + Vector2(0, -14),
+						0.32 if not _use_2x else 0.16,
+						Color(1.2, 1.05, 0.75, 0.42 + ch.pulse * 0.3)
 					)
 				elif atlas.has("apis2_overlay_kvet"):
 					_blit("apis2_overlay_kvet", p.x, p.y, psz * 0.55, Color(1.2, 1.05, 0.8, 0.35 + ch.pulse * 0.2), Vector2(0, -8))
@@ -933,32 +942,36 @@ func _draw_chambers() -> void:
 		if world.time < 90.0 and world.chambers.size() < 4:
 			ul = "apis2_ul_rozestaveny"
 		if atlas.has(ul):
-			## Tallest center dome — scale + lift so úl crowns the comb mound.
-			var ul_sc: float = (0.62 if not _use_2x else 0.31) * maxf(1.0, world.hive_scale * 0.92)
-			var lift := Vector2(0.0, -18.0 - 10.0 * world.hive_scale)
-			_blit(ul, world.core.x, world.core.y, ul_sc, Color(1, 1, 1, 0.9 + world.core_pulse * 0.1), lift)
+			## Build 20: taller copper-shell dome silhouette (koncept / overview).
+			var ul_sc: float = (0.78 if not _use_2x else 0.39) * maxf(1.0, world.hive_scale * 0.98)
+			var lift := Vector2(0.0, -28.0 - 14.0 * world.hive_scale)
+			var ul_mod := Color(1.08, 0.92, 0.72, 0.92 + world.core_pulse * 0.08)
+			if world.brass_sheen > 0.15:
+				ul_mod = ul_mod.lerp(Color(1.28, 0.95, 0.55, 1.0), world.brass_sheen * 0.45)
+			_blit(ul, world.core.x, world.core.y, ul_sc, ul_mod, lift)
 		if atlas.has("apis2_overlay_med") and world.core_pulse > 0.2:
-			_blit("apis2_overlay_med", world.core.x, world.core.y, 0.4 if not _use_2x else 0.2, Color(1.35, 1.15, 0.7, 0.25 + world.core_pulse * 0.35), Vector2(0, -22))
+			_blit("apis2_overlay_med", world.core.x, world.core.y, 0.48 if not _use_2x else 0.24, Color(1.4, 1.15, 0.65, 0.28 + world.core_pulse * 0.35), Vector2(0, -30))
 	if world.rust_machine != null:
 		var rm = world.rust_machine
 		if ProArt.has(pro, "apis_rust_machine"):
-			ProArt.blit(self, pro, "apis_rust_machine", Iso.world_to_iso(rm.x, rm.y), 0.55 if not _use_2x else 0.28, Color(1, 1, 1, 0.8 if not rm.looted else 0.4))
+			## Secondary industrial dome — overview-like peripheral silhouette.
+			ProArt.blit(self, pro, "apis_rust_machine", Iso.world_to_iso(rm.x, rm.y), 0.72 if not _use_2x else 0.36, Color(1.05, 0.9, 0.75, 0.88 if not rm.looted else 0.42))
 		elif atlas.has("apis2_kamen_dostaveny"):
-			_blit("apis2_kamen_dostaveny", rm.x, rm.y, 0.5 if not _use_2x else 0.25, Color(0.85, 0.55, 0.4, 0.7 if not rm.looted else 0.35))
+			_blit("apis2_kamen_dostaveny", rm.x, rm.y, 0.62 if not _use_2x else 0.31, Color(0.9, 0.58, 0.4, 0.78 if not rm.looted else 0.35))
 		else:
-			_draw_box(rm.x, rm.y, rm.r * 0.45, Color(0.55, 0.4, 0.3, 0.7), rm.r * 0.3)
+			_draw_box(rm.x, rm.y, rm.r * 0.55, Color(0.55, 0.4, 0.3, 0.75), rm.r * 0.42)
 	if world.royal_cell != null:
 		var cell = world.royal_cell
 		var glow: float = cell.glow
 		var iso_c := Iso.world_to_iso(cell.x, cell.y)
-		## Kukla underlay while capped; queen (iso 2:1 top-down bake) once she emerges.
+		## Kukla underlay while capped; queen (iso 3/4) once she emerges.
 		if cell.capped and ProArt.has(pro, "apis_royal_cell") and float(cell.queen) < 0.55:
-			ProArt.blit(self, pro, "apis_royal_cell", iso_c, 0.5 if not _use_2x else 0.25, Color(1.15, 1.05, 0.7, 0.75 + glow * 0.25))
+			ProArt.blit(self, pro, "apis_royal_cell", iso_c, 0.55 if not _use_2x else 0.28, Color(1.15, 1.05, 0.7, 0.78 + glow * 0.22))
 		if ProArt.has(pro, "apis_queen") and (not cell.capped or float(cell.queen) >= 0.35):
-			## Extra foreshorten so the baked SE queen sits on the iso plane.
-			var qsc: float = (0.62 + glow * 0.08) if not _use_2x else (0.31 + glow * 0.04)
-			draw_set_transform(iso_c, deg_to_rad(-8.0), Vector2(1.08, 0.72))
-			ProArt.blit(self, pro, "apis_queen", Vector2.ZERO, qsc, Color(1.12, 1.05, 0.78, 0.82 + glow * 0.18))
+			## Upright 3/4 SE — no Y-squash; slight lean toward overview reading.
+			var qsc: float = (0.68 + glow * 0.1) if not _use_2x else (0.34 + glow * 0.05)
+			draw_set_transform(iso_c + Vector2(0, -10), deg_to_rad(-6.0), Vector2(1.0, 1.0))
+			ProArt.blit(self, pro, "apis_queen", Vector2.ZERO, qsc, Color(1.14, 1.06, 0.82, 0.88 + glow * 0.12))
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		elif not ProArt.has(pro, "apis_queen") and atlas.has("apis2_plast_zarivy"):
 			_blit("apis2_plast_zarivy", cell.x, cell.y, 0.28 if not _use_2x else 0.14, Color(1.35, 1.15, 0.55, 0.65 + glow * 0.3))
