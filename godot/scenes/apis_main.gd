@@ -137,7 +137,11 @@ func _ready() -> void:
 	_refresh_hud()
 	queue_redraw()
 	if capture_at >= 0.0 and capture_out != "":
-		## Capture-only: Age 3 holds rarely complete under autoplay — force ending chrome for stills.
+		## Capture-only: Age 3 holds rarely complete under autoplay — force Seeds / ending chrome for stills.
+		if capture_at >= 820.0 and world.royal_cell == null:
+			world._trigger_royal()
+		if capture_at >= 878.0 and world.seeds_time == null and world.royal_cell != null:
+			world._trigger_seeds_hint()
 		if capture_at >= 890.0 and world.mvp_end_time == null:
 			world._trigger_mvp_end()
 		if world.mvp_end_time != null:
@@ -145,6 +149,12 @@ func _ready() -> void:
 			_other_planet_a = 1.0
 			world.cam_zoom = world.cam_zoom_target
 			camera.zoom = Vector2(zoom_target * world.cam_zoom, zoom_target * world.cam_zoom)
+			if world.royal_cell != null:
+				world.royal_cell.capped = true
+				world.royal_cell.glow = 1.0
+		elif world.royal_cell != null:
+			camera.position = Iso.world_to_iso(float(world.royal_cell.x), float(world.royal_cell.y)) + Vector2(0, -36)
+			camera.zoom = Vector2(0.9, 0.9)
 		if _capture_tooltip:
 			_force_capture_tooltip()
 		_refresh_hud()
@@ -152,7 +162,7 @@ func _ready() -> void:
 		await get_tree().process_frame
 		await get_tree().process_frame
 		await get_tree().process_frame
-		print("capture_time_verify apis t=", world.time, " chambers=", world.chambers.size(), " trails=", world.trails.size(), " dusk=", world.dusk, " bloom=", world.meadow_bloom, " floor2=", world.floor2, " orbit=", world.orbit_t, " end=", world.mvp_end_time != null)
+		print("capture_time_verify apis t=", world.time, " chambers=", world.chambers.size(), " trails=", world.trails.size(), " dusk=", world.dusk, " bloom=", world.meadow_bloom, " floor2=", world.floor2, " orbit=", world.orbit_t, " end=", world.mvp_end_time != null, " royal=", world.royal_cell != null, " seeds=", world.seeds_time != null, " dim=", world.dim_all, " kukla=", ProArt.has(pro, "apis_royal_cell"))
 		var img: Image = get_viewport().get_texture().get_image()
 		if img:
 			img.save_png(capture_out)
@@ -227,6 +237,10 @@ func _process(dt: float) -> void:
 			_return_menu(true)
 			return
 	else:
+		## Soft frame the sealed royal cell while the hive dims.
+		if world.royal_cell != null and world.dim_all > 0.2 and bool(world.royal_cell.capped):
+			var focus := Iso.world_to_iso(float(world.royal_cell.x), float(world.royal_cell.y)) + Vector2(0, -36)
+			camera.position = camera.position.lerp(focus, 1.0 - exp(-dt * 1.4))
 		var move := Vector2.ZERO
 		if Input.is_action_pressed("cam_left"):
 			move.x -= 1
@@ -271,7 +285,7 @@ func _refresh_hud() -> void:
 		float(world.time),
 		OrganicHud.apis_fill(world),
 		OrganicHud.apis_roles(world),
-		world.mvp_end_time != null
+		world.mvp_end_time != null or world.dim_all > 0.35
 	)
 	if not demo_on:
 		return
@@ -994,25 +1008,14 @@ func _draw_chambers() -> void:
 			_blit("apis2_kamen_dostaveny", rm.x, rm.y, 0.62 if not _use_2x else 0.31, Color(0.9, 0.58, 0.4, 0.78 if not rm.looted else 0.35))
 		else:
 			_draw_box(rm.x, rm.y, rm.r * 0.55, Color(0.55, 0.4, 0.3, 0.75), rm.r * 0.42)
-	if world.royal_cell != null:
-		var cell = world.royal_cell
-		var glow: float = cell.glow
-		var iso_c := Iso.world_to_iso(cell.x, cell.y)
-		## Kukla underlay while capped; queen (iso 3/4) once she emerges.
-		if cell.capped and ProArt.has(pro, "apis_royal_cell") and float(cell.queen) < 0.55:
-			ProArt.blit(self, pro, "apis_royal_cell", iso_c, 0.55 if not _use_2x else 0.28, Color(1.15, 1.05, 0.7, 0.78 + glow * 0.22))
-		if ProArt.has(pro, "apis_queen") and (not cell.capped or float(cell.queen) >= 0.35):
-			## Upright 3/4 SE — no Y-squash; slight lean toward overview reading.
-			var qsc: float = (0.68 + glow * 0.1) if not _use_2x else (0.34 + glow * 0.05)
-			draw_set_transform(iso_c + Vector2(0, -10), deg_to_rad(-6.0), Vector2(1.0, 1.0))
-			ProArt.blit(self, pro, "apis_queen", Vector2.ZERO, qsc, Color(1.14, 1.06, 0.82, 0.88 + glow * 0.12))
-			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		elif not ProArt.has(pro, "apis_queen") and atlas.has("apis2_plast_zarivy"):
-			_blit("apis2_plast_zarivy", cell.x, cell.y, 0.28 if not _use_2x else 0.14, Color(1.35, 1.15, 0.55, 0.65 + glow * 0.3))
-			if cell.capped:
-				draw_arc(iso_c, 14.0, 0, TAU, 24, Color(1.2, 1.0, 0.55, 0.55 + cell.queen * 0.3), 1.6)
+	if world.royal_cell != null and world.mvp_end_time == null and world.dim_all <= 0.0:
+		_draw_royal_cell_hero()
 	if world.mvp_end_time != null:
 		_draw_ending_planet()
+	elif world.dim_all > 0.0:
+		_draw_seeds_dim_overlay()
+		if world.royal_cell != null:
+			_draw_royal_cell_hero()
 
 
 func _draw_flowers() -> void:
@@ -1166,26 +1169,78 @@ func _draw_soft_shadow(wx: float, wy: float, radius: float, alpha: float = 0.28)
 	draw_colored_polygon(_diamond_at(iso, radius * 1.15, radius * 0.55), Color(0.04, 0.02, 0.01, alpha))
 
 
+func _draw_royal_cell_hero() -> void:
+	if world.royal_cell == null:
+		return
+	var cell = world.royal_cell
+	var glow: float = float(cell.glow)
+	var iso_c := Iso.world_to_iso(cell.x, cell.y) + Vector2(0, -8 - 3.0 * abs(sin(world.time * 1.7)))
+	## Capped Seeds beat: kukla already contains the new-queen silhouette — do not overlay queen sprite.
+	if cell.capped and ProArt.has(pro, "apis_royal_cell"):
+		var csc: float = (0.72 + glow * 0.12) if not _use_2x else (0.36 + glow * 0.06)
+		var lean: float = deg_to_rad(-4.0 + 3.0 * sin(world.time * 1.3))
+		draw_set_transform(iso_c, lean, Vector2.ONE)
+		ProArt.blit(self, pro, "apis_royal_cell", Vector2.ZERO, csc, Color(1.22, 1.08, 0.72, 0.88 + glow * 0.12))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		draw_circle(iso_c + Vector2(0, -csc * 90.0), 12.0 + glow * 10.0, Color(1.15, 0.85, 0.35, 0.16 + glow * 0.18))
+		draw_arc(iso_c + Vector2(0, -csc * 90.0), 20.0 + glow * 12.0, 0, TAU, 28, Color(1.25, 0.95, 0.45, 0.28 + glow * 0.25), 1.5)
+	elif not cell.capped and ProArt.has(pro, "apis_queen"):
+		## Pre-cap royal cell (13:40): upright 3/4 queen silhouette.
+		var qsc: float = (0.68 + glow * 0.1) if not _use_2x else (0.34 + glow * 0.05)
+		draw_set_transform(iso_c + Vector2(0, -10), deg_to_rad(-6.0), Vector2.ONE)
+		ProArt.blit(self, pro, "apis_queen", Vector2.ZERO, qsc, Color(1.14, 1.06, 0.82, 0.88 + glow * 0.12))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	elif atlas.has("apis2_plast_zarivy"):
+		_blit("apis2_plast_zarivy", cell.x, cell.y, 0.28 if not _use_2x else 0.14, Color(1.35, 1.15, 0.55, 0.65 + glow * 0.3))
+		if cell.capped:
+			draw_arc(iso_c, 14.0, 0, TAU, 24, Color(1.2, 1.0, 0.55, 0.55 + float(cell.queen) * 0.3), 1.6)
+
+
+func _draw_seeds_dim_overlay() -> void:
+	## "Zhasne vše kromě ní" — darken the hive so the sealed cell reads alone.
+	var a: float = clampf(world.dim_all * 0.78, 0.0, 0.82)
+	if a <= 0.01:
+		return
+	var vp := get_viewport_rect().size
+	var cam := camera.position
+	var z: float = maxf(camera.zoom.x, 0.2)
+	draw_rect(Rect2(cam - vp * 0.55 / z, vp * 1.1 / z), Color(0.04, 0.02, 0.01, a), true)
+
+
 func _draw_ending_planet() -> void:
 	var vp := get_viewport_rect().size
 	var cam := camera.position
 	var z: float = maxf(camera.zoom.x, 0.2)
-	var a_bg: float = minf(0.92, world.orbit_t * 0.28)
+	var a_bg: float = minf(0.94, world.orbit_t * 0.32)
 	if ProArt.has(pro, "orbit_bg"):
-		ProArt.blit(self, pro, "orbit_bg", cam, 0.72 / z, Color(1, 1, 1, a_bg))
-	draw_rect(Rect2(cam - vp * 0.55 / z, vp * 1.1 / z), Color(0.03, 0.02, 0.01, minf(0.45, world.orbit_t * 0.12)), true)
+		ProArt.blit(self, pro, "orbit_bg", cam, 0.78 / z, Color(1, 1, 1, a_bg))
+	draw_rect(Rect2(cam - vp * 0.55 / z, vp * 1.1 / z), Color(0.03, 0.02, 0.01, minf(0.32, world.orbit_t * 0.08)), true)
 	var p2 := cam + Vector2(-vp.x * 0.3 / z, -vp.y * 0.18 / z)
-	var tw: float = 0.45 + 0.55 * abs(sin(world.time * 2.2))
+	var tw: float = 0.55 + 0.45 * abs(sin(world.time * 2.2))
 	var planet_a: float = _other_planet_a * tw
+	var psc: float = 0.24 / z * camera.zoom.x
 	if ProArt.has(pro, "ending_planet"):
-		ProArt.blit(self, pro, "ending_planet", p2, 0.16 / z * camera.zoom.x, Color(1.05, 1.02, 0.98, planet_a))
+		## Cool Mycelium glimmer rings.
+		draw_circle(p2, 28.0 / z, Color(0.45, 0.85, 0.55, planet_a * 0.12))
+		draw_arc(p2, 34.0 / z, 0, TAU, 36, Color(0.5, 0.9, 0.6, planet_a * 0.4), 1.6)
+		draw_arc(p2, 48.0 / z, 0, TAU, 36, Color(0.35, 0.75, 0.5, planet_a * 0.22), 1.1)
+		ProArt.blit(self, pro, "ending_planet", p2, psc, Color(1.05, 1.08, 1.02, planet_a))
 	elif ProArt.has(pro, "menu_mycelium"):
-		ProArt.blit(self, pro, "menu_mycelium", p2, 0.1, Color(1, 1, 1, planet_a * 0.85))
+		ProArt.blit(self, pro, "menu_mycelium", p2, 0.12, Color(1, 1, 1, planet_a * 0.85))
 	else:
-		draw_circle(p2, 10.0, Color(0.4, 0.75, 0.5, planet_a))
-		draw_arc(p2, 18.0, 0, TAU, 28, Color(0.35, 0.7, 0.48, planet_a * 0.45), 1.6)
-	if not _die.has("end") and ProArt.has(pro, "swarm_logo"):
-		ProArt.blit(self, pro, "swarm_logo", cam + Vector2(0, -vp.y * 0.32 / z), 0.22, Color(1, 1, 1, minf(1.0, world.orbit_t * 0.25)))
+		draw_circle(p2, 12.0, Color(0.4, 0.75, 0.5, planet_a))
+		draw_arc(p2, 20.0, 0, TAU, 28, Color(0.35, 0.7, 0.48, planet_a * 0.45), 1.6)
+	## Sealed cell pulse toward the distant green planet.
+	if world.royal_cell != null:
+		var tip := cam + Vector2(0, vp.y * 0.12 / z)
+		var pa: float = 0.2 + 0.45 * abs(sin(world.time * 2.4)) * float(world.royal_cell.glow)
+		draw_line(tip, p2, Color(1.15, 0.9, 0.4, pa * 0.4), 2.4, true)
+		draw_line(tip, p2, Color(1.35, 1.1, 0.55, pa), 1.1, true)
+	## World-space SWARM logo beat (pro_v3) — fades in before the stats panel.
+	var logo_a: float = clampf((world.orbit_t - 0.55) / 1.6, 0.0, 1.0)
+	var logo_key := "logo" if ProArt.has(pro, "logo") else "swarm_logo"
+	if logo_a > 0.02 and ProArt.has(pro, logo_key):
+		ProArt.blit(self, pro, logo_key, cam + Vector2(0, -vp.y * 0.36 / z), 0.34 if logo_key == "logo" else 0.42, Color(1, 1, 1, logo_a))
 
 
 func _draw_guidance() -> void:
