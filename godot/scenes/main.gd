@@ -30,6 +30,8 @@ var _drag: bool = false
 var _use_2x: bool = false
 var _orbit_done: bool = false
 var _other_planet_a: float = 0.0
+var _autosave_cd: float = 60.0
+var _run_seed: int = 42
 
 
 func _resolve_rod() -> String:
@@ -71,15 +73,58 @@ func _ready() -> void:
 
 	_use_2x = DisplayServer.screen_get_scale() >= 1.5
 	atlas = Atlas.load_all(_use_2x)
-	var opts := {"silent": true, "seed": 42}
-	if "--start=10" in args or "start=10" in args:
+	_run_seed = 42
+	var opts := {"silent": false, "seed": _run_seed}
+	var resume_t: float = -1.0
+	if get_tree().has_meta("swarm_continue") and bool(get_tree().get_meta("swarm_continue")):
+		get_tree().set_meta("swarm_continue", false)
+		var sav: Dictionary = SwarmSave.load_all()
+		if str(sav.rod) == "mycelium":
+			_run_seed = int(sav.seed)
+			opts["seed"] = _run_seed
+			resume_t = float(sav.time)
+			if resume_t >= C.START10_T - 5.0:
+				opts["startAt"] = 600.0
+			elif resume_t >= C.START5_T - 5.0:
+				opts["startAt"] = 280.0
+	elif "--start=10" in args or "start=10" in args:
 		opts["startAt"] = 600.0
 	world = MyceliumWorld.new(opts)
+	if resume_t > world.time:
+		_catch_up(resume_t)
+	SwarmAudio.set_ambient("mycelium")
 	hud.visible = demo_on
 	camera.position = Iso.world_to_iso(float(C.W) * 0.5, float(C.H) * 0.5)
 	zoom_target = 1.0
 	camera.zoom = Vector2(zoom_target, zoom_target)
 	queue_redraw()
+
+
+func _catch_up(target: float) -> void:
+	var silent_was: bool = world._silent
+	world._silent = true
+	var guard := 0
+	while world.time < target - 0.05 and guard < 200000:
+		world.update(minf(1.0 / 12.0, target - world.time))
+		guard += 1
+	world._silent = silent_was
+
+
+func _autosave(force: bool = false) -> void:
+	if world == null or world.mvp_end_time != null:
+		return
+	SwarmSave.save_progress("mycelium", float(world.time), _run_seed)
+
+
+func _return_menu(grown_flag: bool = false) -> void:
+	_autosave(true)
+	if grown_flag:
+		get_tree().set_meta("swarm_grown_mycelium", true)
+		SwarmSave.save_progress("mycelium", 900.0, _run_seed, {"mycelium": true})
+		SwarmSave.clear_progress()
+	get_tree().set_meta("swarm_return_choose", true)
+	SwarmAudio.set_ambient("menu")
+	get_tree().change_scene_to_file("res://scenes/menu.tscn")
 
 
 func _run_sim_and_quit() -> void:
@@ -93,14 +138,16 @@ func _process(dt: float) -> void:
 	if world == null:
 		return
 	world.update(dt * speed_mul)
+	_autosave_cd -= dt
+	if _autosave_cd <= 0.0:
+		_autosave_cd = 60.0
+		_autosave()
 
 	if world.mvp_end_time != null:
 		_other_planet_a = minf(1.0, _other_planet_a + dt * 0.35)
 		if world.orbit_t > 4.5 and not _orbit_done:
 			_orbit_done = true
-			get_tree().set_meta("swarm_grown_mycelium", true)
-			get_tree().set_meta("swarm_return_choose", true)
-			get_tree().change_scene_to_file("res://scenes/menu.tscn")
+			_return_menu(true)
 			return
 	else:
 		var move := Vector2.ZERO
@@ -146,6 +193,9 @@ func _fmt_clock(t: float) -> String:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if world == null:
+		return
+	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_ESCAPE:
+		_return_menu(false)
 		return
 	if event.is_action_pressed("toggle_demo"):
 		demo_on = not demo_on
