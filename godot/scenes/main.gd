@@ -395,20 +395,9 @@ func _draw_ground_base() -> void:
 		tex_key = "myc_tex_puda_zarici"
 	var tex: Texture2D = ProArt.tex(pro, tex_key)
 	if tex != null:
-		## Few large UV-tiled diamonds — ground beyond camera, no small-tile stripe bands.
-		var uv_s := 5.5
-		for layer in range(3):
-			var grow: float = 1.0 + float(layer) * 0.35
-			var pts := _diamond_at(c, hw * grow, hh * grow)
-			var uvs := PackedVector2Array([
-				Vector2(0.5, 0.0) * uv_s,
-				Vector2(1.0, 0.5) * uv_s,
-				Vector2(0.5, 1.0) * uv_s,
-				Vector2(0.0, 0.5) * uv_s,
-			])
-			var shade: float = lerpf(1.0, 0.8, float(layer) / 2.0)
-			var col := Color(shade, shade, shade, 1.0)
-			draw_polygon(pts, PackedColorArray([col, col, col, col]), uvs, tex)
+		## Axis-aligned tiled fill (no diamond UV shear → no stripe bands). Ground stays.
+		var fill := Rect2(c.x - 2200.0, c.y - 1400.0, 4400.0, 2800.0)
+		draw_texture_rect(tex, fill, true)
 	else:
 		draw_colored_polygon(_diamond_at(c, hw, hh), Color(0.14, 0.18, 0.1, 1.0))
 	_draw_ground_decals()
@@ -452,10 +441,11 @@ func _draw_soil() -> void:
 			elif not has_fill:
 				var iso := Iso.world_to_iso(wx, wy)
 				draw_colored_polygon(_diamond_at(iso, tile * 0.56, tile * 0.28), Color(0.16 + 0.03 * idx, 0.2 + 0.02 * idx, 0.11, 1.0))
-			if stage != "pusta" and atlas.has("myc2_overlay_prorust"):
+			## Sparse prorust overlays only near live network (avoid neon carpet).
+			if stage == "ziva" and atlas.has("myc2_overlay_prorust") and ((tx + ty) % 5) == 0:
 				var prox: float = 1.0 - clampf(_nest().distance_to(Vector2(wx, wy)) / maxf(_visual_reach(), 1.0), 0.0, 1.0)
-				if prox > 0.35:
-					_blit("myc2_overlay_prorust", wx, wy, sc * 0.92, Color(1, 1, 1, 0.1 + prox * 0.18))
+				if prox > 0.55:
+					_blit("myc2_overlay_prorust", wx, wy, sc * 0.85, Color(1, 1, 1, 0.06 + prox * 0.08))
 
 
 func _draw_ground_decals() -> void:
@@ -532,19 +522,18 @@ func _draw_hyphae() -> void:
 		var my: float = (s.y1 + s.y2) * 0.5
 		var a_iso := Iso.world_to_iso(s.x1, s.y1)
 		var b_iso := Iso.world_to_iso(s.x2, s.y2)
-		## Soft luminous underlay so filaments never read as dark bead chains.
-		var w: float = 1.4 + float(mini(3, th)) * 0.85
-		draw_line(a_iso, b_iso, Color(0.35, 0.85, 0.55, 0.22 * bright), w * 2.2, true)
-		draw_line(a_iso, b_iso, Color(1.35, 1.7, 1.15, 0.55 * bright), w, true)
-		var alpha: float = (0.72 + 0.1 * float(mini(3, th))) * bright
-		var col := Color(1.45, 1.75, 1.2, alpha)
+		## Sprite-first hyphae — thin underlay only when atlas miss / very thin segs.
+		var alpha: float = (0.65 + 0.1 * float(mini(3, th))) * minf(1.15, bright)
+		var col := Color(1.05, 1.25, 1.0, alpha)
 		if atlas.has(name):
-			var sc := 0.34 + 0.06 * float(mini(3, th))
+			var sc := 0.4 + 0.06 * float(mini(3, th))
 			if _use_2x:
 				sc *= 0.5
 			_blit(name, mx, my, sc, col)
 			drawn += 1
 		else:
+			var w: float = 1.1 + float(mini(3, th)) * 0.55
+			draw_line(a_iso, b_iso, Color(0.45, 0.9, 0.6, 0.35 * bright), w, true)
 			drawn += 1
 	## Sparse branch / node accents.
 	if atlas.has("myc2_hyfa_uzel_stredni"):
@@ -604,8 +593,9 @@ func _draw_entities() -> void:
 		_draw_soft_shadow(p.x, p.y, 14.0 if p.get("big", false) else 9.0, 0.22 + p.lit * 0.12)
 		if atlas.has(name):
 			_blit(name, p.x, p.y, sc, Color(1, 1, 1, 0.55 + p.lit * 0.4))
-			if stage == "zariva" and atlas.has("myc2_overlay_zare"):
-				_blit("myc2_overlay_zare", p.x, p.y, sc * 1.05, Color(1, 1, 1, 0.35 + world.network_bright * 0.4))
+			## Soft zariva bloom — keep subtle so it never reads as a neon slash overlay.
+			if stage == "zariva" and atlas.has("myc2_overlay_zare") and p.lit > 0.55:
+				_blit("myc2_overlay_zare", p.x, p.y, sc * 0.95, Color(1, 1, 1, 0.12 + p.lit * 0.12))
 		else:
 			_draw_box_fallback(p.x, p.y, p.r * 0.7, Color(0.35, 0.7, 0.45, 0.85))
 
@@ -660,28 +650,40 @@ func _draw_entities() -> void:
 
 	for w in world.workers:
 		var pos = world.worker_pos(w)
+		## Face along current segment tangent (all 4 dirs).
 		var dir := "SE"
-		if w.dir < 0:
+		var n: int = w.route.size() if w.has("route") else 0
+		if n > 0 and world.segs.size() > 0:
+			var fi: float = clampf(float(w.pos), 0.0, float(n) - 1e-6)
+			var si: int = clampi(int(floor(fi)), 0, n - 1)
+			var seg = world.segs[w.route[si]] if w.route[si] < world.segs.size() else null
+			if seg != null:
+				var sdx: float = float(seg.x2 - seg.x1) * float(w.dir)
+				var sdy: float = float(seg.y2 - seg.y1) * float(w.dir)
+				dir = _hyfa_dir(sdx, sdy)
+		elif int(w.dir) < 0:
 			dir = "NW"
-		## Returning workers carry matter back to the nest.
 		var carrying: bool = int(w.dir) < 0
 		var name := ("myc2_delnik_neseni_%s" if carrying else "myc2_delnik_%s") % dir
 		if not atlas.has(name):
 			name = "myc2_delnik_SE"
+		var wsc: float = 0.78 if not _use_2x else 0.4
+		_draw_soft_shadow(pos.x, pos.y, 5.0, 0.25)
 		if atlas.has(name):
-			_blit(name, pos.x, pos.y, 0.55 if not _use_2x else 0.28)
+			_blit(name, pos.x, pos.y, wsc, Color(1.15, 1.2, 1.05, 1.0))
 		else:
-			draw_circle(Iso.world_to_iso(pos.x, pos.y), 2.0, Color(0.55, 0.9, 0.6))
+			draw_circle(Iso.world_to_iso(pos.x, pos.y), 2.8, Color(0.55, 0.9, 0.6))
 
 	if world.stroke_active and world.stroke.size() > 1:
 		for i in range(1, world.stroke.size()):
 			var a := Iso.world_to_iso(world.stroke[i - 1].x, world.stroke[i - 1].y)
 			var b := Iso.world_to_iso(world.stroke[i].x, world.stroke[i].y)
-			draw_line(a, b, Color(0.55, 0.9, 0.65, 0.45), 2.0, true)
+			## Soft guidance stroke — never a neon slash.
+			draw_line(a, b, Color(0.55, 0.85, 0.65, 0.28), 1.6, true)
 
 	for m in world.matters:
 		if m.encircled and m.kind != "fruit" and atlas.has("myc2_overlay_prorust"):
-			_blit("myc2_overlay_prorust", m.x, m.y, 0.4 if not _use_2x else 0.2, Color(1, 1, 1, 0.35 * m.decay))
+			_blit("myc2_overlay_prorust", m.x, m.y, 0.32 if not _use_2x else 0.16, Color(1, 1, 1, 0.18 * m.decay))
 
 	## Age 3 — pro_v3 sprites (no procedural boxes when pack present).
 	if world.infected != null:

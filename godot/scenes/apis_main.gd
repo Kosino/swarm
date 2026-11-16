@@ -360,25 +360,14 @@ func _draw_ground_base() -> void:
 		tex_key = "apis_tex_louka_ziva"
 	var tex: Texture2D = ProArt.tex(pro, tex_key)
 	if tex != null:
-		## Few large UV-tiled diamonds — avoids diagonal stripe bands from small-tile seams.
-		var uv_s := 5.5
-		for layer in range(3):
-			var grow: float = 1.0 + float(layer) * 0.35
-			var pts := _diamond_at(c, hw * grow, hh * grow)
-			var uvs := PackedVector2Array([
-				Vector2(0.5, 0.0) * uv_s,
-				Vector2(1.0, 0.5) * uv_s,
-				Vector2(0.5, 1.0) * uv_s,
-				Vector2(0.0, 0.5) * uv_s,
-			])
-			var shade: float = lerpf(1.0, 0.82, float(layer) / 2.0)
-			var col := Color(shade, shade * 0.98, shade * 0.92, 1.0)
-			draw_polygon(pts, PackedColorArray([col, col, col, col]), uvs, tex)
+		## Axis-aligned tiled fill — kills diagonal stripe bands from diamond UVs. Ground stays.
+		var fill := Rect2(c.x - 2200.0, c.y - 1400.0, 4400.0, 2800.0)
+		draw_texture_rect(tex, fill, true)
 		var rim: Texture2D = ProArt.tex(pro, "apis_tex_skala_okraj")
 		if rim != null:
 			var rim_pts := _diamond_at(c + Vector2(0, hh * 0.55), hw * 0.75, 56.0)
 			var ruv := PackedVector2Array([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)])
-			draw_polygon(rim_pts, PackedColorArray([Color(1, 1, 1, 0.45), Color(1, 1, 1, 0.45), Color(1, 1, 1, 0.08), Color(1, 1, 1, 0.08)]), ruv, rim)
+			draw_polygon(rim_pts, PackedColorArray([Color(1, 1, 1, 0.35), Color(1, 1, 1, 0.35), Color(1, 1, 1, 0.05), Color(1, 1, 1, 0.05)]), ruv, rim)
 	else:
 		draw_colored_polygon(_diamond_at(c, hw, hh), Color(0.28, 0.22, 0.12, 1.0))
 	_draw_meadow_decals()
@@ -507,7 +496,7 @@ func _feromon_dir(dx: float, dy: float) -> String:
 
 func _draw_routes_trails() -> void:
 	var hc := _hive()
-	## Luminous gold trails with continuous underlay (not dark bead chains).
+	## Feromon sprites only — no hard gold axis lines.
 	for tr in world.trails:
 		if tr.pts.size() < 2:
 			continue
@@ -516,48 +505,49 @@ func _draw_routes_trails() -> void:
 		for i in range(1, tr.pts.size()):
 			var p0 = tr.pts[i - 1]
 			var p1 = tr.pts[i]
-			var a2 := Iso.world_to_iso(p0.x, p0.y)
-			var b2 := Iso.world_to_iso(p1.x, p1.y)
-			draw_line(a2, b2, Color(1.0, 0.72, 0.25, 0.2 + gold * 0.25), 3.2, true)
-			draw_line(a2, b2, Color(1.55, 1.25, 0.45, 0.55 + gold * 0.35), 1.6, true)
 			var dir := _feromon_dir(p1.x - p0.x, p1.y - p0.y)
 			var fname := "apis2_feromon_%s_%s" % [inten, dir]
-			var glow_col := Color(1.6, 1.3, 0.55, 0.62 + gold * 0.35)
+			var glow_col := Color(1.45, 1.2, 0.5, 0.55 + gold * 0.3)
 			if atlas.has(fname):
-				_blit(fname, (p0.x + p1.x) * 0.5, (p0.y + p1.y) * 0.5, 0.38 if not _use_2x else 0.19, glow_col)
+				_blit(fname, (p0.x + p1.x) * 0.5, (p0.y + p1.y) * 0.5, 0.42 if not _use_2x else 0.21, glow_col)
+			else:
+				var a2 := Iso.world_to_iso(p0.x, p0.y)
+				var b2 := Iso.world_to_iso(p1.x, p1.y)
+				draw_line(a2, b2, Color(1.0, 0.78, 0.3, 0.28 + gold * 0.25), 2.0, true)
 		var last = tr.pts[tr.pts.size() - 1]
 		var prev = tr.pts[tr.pts.size() - 2]
 		var tip := "apis2_feromon_tip_%s_%s" % [inten, _feromon_dir(last.x - prev.x, last.y - prev.y)]
 		if not atlas.has(tip):
 			tip = "apis2_feromon_tip"
 		if atlas.has(tip):
-			_blit(tip, last.x, last.y, 0.4 if not _use_2x else 0.2, Color(1.65, 1.35, 0.55, 0.85))
+			_blit(tip, last.x, last.y, 0.42 if not _use_2x else 0.21, Color(1.5, 1.25, 0.5, 0.75))
 		if atlas.has("apis2_feromon_uzel_%s" % inten) and tr.pts.size() > 2:
 			var mid = tr.pts[tr.pts.size() / 2]
-			_blit("apis2_feromon_uzel_%s" % inten, mid.x, mid.y, 0.3 if not _use_2x else 0.15, Color(1.55, 1.25, 0.5, 0.6 + gold * 0.3))
+			_blit("apis2_feromon_uzel_%s" % inten, mid.x, mid.y, 0.32 if not _use_2x else 0.16, Color(1.45, 1.2, 0.48, 0.5 + gold * 0.25))
 	if world.stroke_active:
 		for i in range(1, world.stroke_pts.size()):
 			var a3 := Iso.world_to_iso(world.stroke_pts[i - 1].x, world.stroke_pts[i - 1].y)
 			var b3 := Iso.world_to_iso(world.stroke_pts[i].x, world.stroke_pts[i].y)
-			draw_line(a3, b3, Color(1.0, 0.82, 0.35, 0.5), 2.0, true)
+			draw_line(a3, b3, Color(1.0, 0.82, 0.35, 0.32), 1.6, true)
 	if world.second_hive != null:
 		var sh = world.second_hive
-		## Highway as feromon segments, not a grey stick.
-		var steps := 6
+		var steps := 8
 		for s in range(1, steps + 1):
 			var t0: float = float(s - 1) / float(steps)
 			var t1: float = float(s) / float(steps)
-			var q0 := hc.lerp(Vector2(sh.x, sh.y), t0)
-			var q1 := hc.lerp(Vector2(sh.x, sh.y), t1)
+			## Slight curve so highway never reads as a ruler axis.
+			var bend := Vector2(-22.0, 14.0) * sin(t1 * PI)
+			var q0 := hc.lerp(Vector2(sh.x, sh.y), t0) + bend * t0
+			var q1 := hc.lerp(Vector2(sh.x, sh.y), t1) + bend * t1
 			var dir2 := _feromon_dir(q1.x - q0.x, q1.y - q0.y)
 			var fn := "apis2_feromon_silna_%s" % dir2
 			if atlas.has(fn):
-				_blit(fn, (q0.x + q1.x) * 0.5, (q0.y + q1.y) * 0.5, 0.24 if not _use_2x else 0.12, Color(1.4, 1.15, 0.5, 0.35 + world.highway_glow * 0.4))
+				_blit(fn, (q0.x + q1.x) * 0.5, (q0.y + q1.y) * 0.5, 0.28 if not _use_2x else 0.14, Color(1.35, 1.1, 0.48, 0.4 + world.highway_glow * 0.35))
 		var uln := "apis2_ul_zarivy" if sh.pulse > 0.4 or world.highway_glow > 0.5 else "apis2_ul_dostaveny"
 		if atlas.has(uln):
 			_blit(uln, sh.x, sh.y, 0.35 if not _use_2x else 0.18, Color(1, 1, 1, 0.75 + sh.pulse * 0.2))
 	if world.swarm_time != null and atlas.has("apis2_overlay_med"):
-		_blit("apis2_overlay_med", hc.x, hc.y - 40.0, 0.4 if not _use_2x else 0.2, Color(1.3, 1.15, 0.7, 0.35 + world.highway_glow * 0.25))
+		_blit("apis2_overlay_med", hc.x, hc.y - 40.0, 0.4 if not _use_2x else 0.2, Color(1.3, 1.15, 0.7, 0.28 + world.highway_glow * 0.2))
 
 
 func _plast_stage(ch: Dictionary) -> String:
@@ -580,18 +570,19 @@ func _draw_chambers() -> void:
 	var hive := _hive()
 	for ch in world.chambers.values():
 		var p: Vector2 = world._axial_to_pixel(ch.q, ch.r)
-		## Stronger organic clustering — pull to core + spiral jitter (not a rigid hex grid).
-		var jx: float = sin(float(ch.q) * 1.7 + float(ch.r) * 2.3) * 5.8
-		var jy: float = cos(float(ch.q) * 2.1 - float(ch.r) * 1.4) * 4.6
-		var toward := (hive - p) * 0.12
-		var spiral := Vector2(cos(float(ch.q + ch.r) * 0.7), sin(float(ch.q - ch.r) * 0.55)) * 3.5
+		## Organic comb mound — heavy core pull + ring stagger (break hex lattice).
+		var ring: float = sqrt(float(ch.q * ch.q + ch.r * ch.r + ch.q * ch.r))
+		var jx: float = sin(float(ch.q) * 2.1 + float(ch.r) * 1.6) * (7.5 + ring * 1.2)
+		var jy: float = cos(float(ch.q) * 1.4 - float(ch.r) * 2.0) * (6.2 + ring * 0.9)
+		var toward := (hive - p) * (0.18 + ring * 0.02)
+		var spiral := Vector2(cos(float(ch.q + ch.r) * 0.85), sin(float(ch.q - ch.r) * 0.7)) * (5.0 + ring)
 		p += Vector2(jx, jy) + toward + spiral
 		var iso := Iso.world_to_iso(p.x, p.y)
-		var rot: float = sin(float(ch.q) * 0.9 + float(ch.r) * 1.3) * 0.22
-		var sc_jit: float = 0.82 + 0.28 * abs(sin(float(ch.q) * 1.1 + float(ch.r) * 0.7))
+		var rot: float = sin(float(ch.q) * 1.15 + float(ch.r) * 1.55) * 0.38
+		var sc_jit: float = 0.72 + 0.4 * abs(sin(float(ch.q) * 1.3 + float(ch.r) * 0.9))
 		items.append({"ch": ch, "p": p, "iso_y": iso.y, "rot": rot, "sc_jit": sc_jit})
 	items.sort_custom(func(a, b): return a.iso_y < b.iso_y)
-	var sc: float = 0.42 if not _use_2x else 0.21
+	var sc: float = 0.46 if not _use_2x else 0.23
 	sc *= world.hive_scale
 	for it in items:
 		var ch = it.ch

@@ -273,11 +273,13 @@ func _draw() -> void:
 		_draw_volume_icon(_volume_pos())
 		if continue_available:
 			_draw_continue_icon(_continue_pos(), continue_hover)
-		## Branded rod icons under planets.
+		## Branded rod icons — brighten on hover.
 		if ProArt.has(pro, "icon_apis"):
-			ProArt.blit(self, pro, "icon_apis", centers.apis + Vector2(0, _planet_radius("apis") + 52.0), 0.35, Color(1, 1, 1, 0.9))
+			var ia: float = 1.0 if hover == "apis" else 0.82
+			ProArt.blit(self, pro, "icon_apis", centers.apis + Vector2(0, _planet_radius("apis") + 52.0), 0.38 if hover == "apis" else 0.34, Color(1, 1, 1, ia))
 		if ProArt.has(pro, "icon_mycelium"):
-			ProArt.blit(self, pro, "icon_mycelium", centers.mycelium + Vector2(0, _planet_radius("mycelium") + 52.0), 0.35, Color(1, 1, 1, 0.9))
+			var im: float = 1.0 if hover == "mycelium" else 0.82
+			ProArt.blit(self, pro, "icon_mycelium", centers.mycelium + Vector2(0, _planet_radius("mycelium") + 52.0), 0.38 if hover == "mycelium" else 0.34, Color(1, 1, 1, im))
 
 	if phase == Phase.DIVE:
 		var wash := Color(COL_APIS.r, COL_APIS.g, COL_APIS.b, dive_t * 0.55) if dive_rod == "apis" \
@@ -327,25 +329,31 @@ func _draw_continue_icon(at: Vector2, hot: bool) -> void:
 
 
 func _draw_planet(c: Vector2, r: float, col: Color, has_grown: bool, label: String, show_label: bool) -> void:
-	## Rod “planets” — painted menu panels cropped as circular hits when available.
-	var pkey := "menu_apis" if label == "APIS" else "menu_mycelium"
-	if ProArt.has(pro, pkey):
-		## Soft circular frame + cropped feel via scaled blit.
-		draw_circle(c, r * 1.08, Color(col.r, col.g, col.b, 0.18))
-		ProArt.blit(self, pro, pkey, c, (r * 2.1) / 1920.0, Color(1, 1, 1, 1.0 if hover == label.to_lower() else 0.92))
-		draw_arc(c, r, 0, TAU, 48, Color(col.r, col.g, col.b, 0.55), 2.0)
+	## menu_dual already paints both planets — never re-blit full menu panels (rectangular insets).
+	## Hover = soft ring + wash; dive title uses procedural sphere if no dual bg.
+	var hot: bool = hover == label.to_lower()
+	var dual_bg: bool = ProArt.has(pro, "menu_choose") or ProArt.has(pro, "menu_dual")
+	if phase == Phase.CHOOSE and dual_bg:
+		if hot:
+			draw_circle(c, r * 1.12, Color(col.r, col.g, col.b, 0.14))
+			draw_arc(c, r * 1.02, 0, TAU, 64, Color(col.r, col.g, col.b, 0.95), 3.0)
+			draw_arc(c, r * 0.92, 0, TAU, 48, Color(1, 1, 1, 0.35), 1.4)
+		else:
+			draw_arc(c, r, 0, TAU, 48, Color(col.r, col.g, col.b, 0.35), 1.5)
+	elif ProArt.has(pro, "menu_apis" if label == "APIS" else "menu_mycelium") and phase != Phase.CHOOSE:
+		## Title / dive only — circular soft plate, not full UI panel.
+		draw_circle(c, r * 1.05, Color(col.r, col.g, col.b, 0.22 if hot else 0.12))
+		draw_arc(c, r, 0, TAU, 48, Color(col.r, col.g, col.b, 0.7 if hot else 0.45), 2.2)
 	else:
 		draw_circle(c, r * 1.18, Color(col.r, col.g, col.b, 0.14))
 		draw_circle(c, r, col.darkened(0.35))
 		draw_circle(c + Vector2(-r * 0.22, -r * 0.18), r * 0.72, col.lightened(0.08))
-		for i in range(4):
-			var yy: float = -r * 0.55 + float(i) * r * 0.35
-			draw_line(c + Vector2(-r * 0.7, yy), c + Vector2(r * 0.7, yy * 0.9), Color(col.r, col.g, col.b, 0.25), 2.0)
+		draw_arc(c, r, 0, TAU, 48, Color(col.r, col.g, col.b, 0.55 if hot else 0.35), 2.0)
 	if has_grown:
 		var blink: float = 0.55 + 0.45 * abs(sin(t * 3.0))
 		draw_circle(c + Vector2(0, -r * 0.15), r * 0.18, Color(1, 1, 0.85, blink))
 		draw_arc(c + Vector2(0, -r * 0.15), r * 0.28, 0, TAU, 20, Color(1, 1, 0.9, blink * 0.7), 1.5)
 	if show_label and phase != Phase.DIVE:
-		var lc := Color(0.92, 0.94, 0.88, 0.92)
+		var lc := Color(0.92, 0.94, 0.88, 0.95 if hot else 0.85)
 		var font: Font = _title_font if _title_font else ThemeDB.fallback_font
-		draw_string(font, c + Vector2(-42, r + 30), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, lc)
+		draw_string(font, c + Vector2(-42, r + 28), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, lc)
