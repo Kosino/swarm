@@ -127,6 +127,10 @@ func _ready() -> void:
 	zoom_target = 1.0
 	camera.zoom = Vector2(zoom_target * world.cam_zoom, zoom_target * world.cam_zoom)
 	Atm.sync_light(_atm, camera.position)
+	Atm.sync_particles(_atm, camera.position)
+	var dusk0: float = maxf(world.dusk, clampf((world.time - 560.0) / 140.0, 0.0, 1.0) * 0.85)
+	dusk0 = maxf(dusk0, world.drought * 0.45)
+	Atm.set_dusk(_atm, dusk0)
 	_refresh_hud()
 	queue_redraw()
 	if capture_at >= 0.0 and capture_out != "":
@@ -241,8 +245,7 @@ func _process(dt: float) -> void:
 	## Drought heat haze leans dusk warm without replacing the winter/dusk beat.
 	dusk_v = maxf(dusk_v, world.drought * 0.45)
 	Atm.set_dusk(_atm, dusk_v)
-	if _atm.has("dust"):
-		(_atm["dust"] as Node2D).global_position = h_iso
+	Atm.sync_particles(_atm, h_iso)
 	_refresh_hud()
 	queue_redraw()
 
@@ -662,33 +665,53 @@ func _draw_meadow() -> void:
 
 
 func _draw_meadow_decals() -> void:
+	## Biome detail rings — flowers/pollen near hive, tufts mid, stones/kerls far.
 	var hive := _hive()
-	var keys := [
-		"apis_decal_trs_a", "apis_decal_trs_b", "apis_decal_trs_suchy", "apis_decal_kvet_a",
-		"apis_decal_kvet_b", "apis_decal_kvet_trso", "apis_decal_kamen_a", "apis_decal_kamen_b",
-		"apis_decal_oblazek_a", "apis_decal_oblazek_b", "apis_decal_kerl", "apis_decal_pyl_skvrna",
-	]
-	var present: Array = []
-	for k in keys:
+	var near_keys := ["apis_decal_kvet_a", "apis_decal_kvet_b", "apis_decal_kvet_trso", "apis_decal_pyl_skvrna", "apis_decal_trs_a"]
+	var mid_keys := ["apis_decal_trs_a", "apis_decal_trs_b", "apis_decal_trs_suchy", "apis_decal_oblazek_a", "apis_decal_oblazek_b", "apis_decal_kerl"]
+	var far_keys := ["apis_decal_kamen_a", "apis_decal_kamen_b", "apis_decal_trs_suchy", "apis_decal_kerl", "apis_decal_oblazek_b"]
+	var near_p: Array = []
+	var mid_p: Array = []
+	var far_p: Array = []
+	for k in near_keys:
 		if ProArt.has(pro, k):
-			present.append(k)
-	if present.is_empty():
+			near_p.append(k)
+	for k in mid_keys:
+		if ProArt.has(pro, k):
+			mid_p.append(k)
+	for k in far_keys:
+		if ProArt.has(pro, k):
+			far_p.append(k)
+	if near_p.is_empty() and mid_p.is_empty() and far_p.is_empty():
 		return
-	var sc: float = 0.4 if not _use_2x else 0.2
-	var decal_n: int = mini(52, SwarmGfx.decal_count() + 4)
+	var sc: float = 0.42 if not _use_2x else 0.21
+	var decal_n: int = mini(64, SwarmGfx.decal_count() + SwarmGfx.detail_decal_count())
 	for i in range(decal_n):
-		var ang: float = float(i) * 2.399963
-		var rad: float = 60.0 + fmod(float(i * 53), 400.0)
-		var wx: float = hive.x + cos(ang) * rad
-		var wy: float = hive.y + sin(ang) * rad * 0.7
+		var ang: float = float(i) * 2.399963 + float(i % 5) * 0.09
+		var rad: float = 48.0 + fmod(float(i * 53), 440.0)
+		var wx: float = hive.x + cos(ang) * rad + sin(float(i) * 1.9) * 7.0
+		var wy: float = hive.y + sin(ang) * rad * 0.7 + cos(float(i) * 1.4) * 5.0
 		if wx < -40.0 or wy < -40.0 or wx > float(C.W) + 40.0 or wy > float(C.H) + 40.0:
 			continue
 		var iso_d := Iso.world_to_iso(wx, wy)
 		if not SwarmGfx.iso_in_view(iso_d, _view):
 			continue
-		var key: String = present[i % present.size()]
-		var a: float = 0.58 if i % 4 == 0 else 0.4
-		ProArt.blit(self, pro, key, iso_d, sc * (0.85 + float(i % 5) * 0.05), Color(1, 1, 1, a))
+		var pool: Array = mid_p
+		if rad < 150.0 and not near_p.is_empty():
+			pool = near_p
+		elif rad > 300.0 and not far_p.is_empty():
+			pool = far_p
+		elif pool.is_empty():
+			pool = near_p if not near_p.is_empty() else far_p
+		if pool.is_empty():
+			continue
+		var key: String = pool[i % pool.size()]
+		var a: float = 0.64 if i % 5 == 0 else (0.5 if i % 3 == 0 else 0.36)
+		var local_sc: float = sc * (0.8 + float(i % 6) * 0.06)
+		if key.begins_with("apis_decal_kvet") or key == "apis_decal_pyl_skvrna":
+			local_sc *= 1.1
+			a = minf(0.74, a + 0.1)
+		ProArt.blit(self, pro, key, iso_d, local_sc, Color(1, 1, 1, a))
 
 
 func _feromon_dir(dx: float, dy: float) -> String:

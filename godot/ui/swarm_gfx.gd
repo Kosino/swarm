@@ -231,6 +231,28 @@ static func dust_amount() -> int:
 			return 40
 
 
+static func mote_amount() -> int:
+	## Larger pollen / spore ambient motes (on top of fine dust).
+	match q_level():
+		1:
+			return 16
+		2:
+			return 6
+		_:
+			return 28
+
+
+static func detail_decal_count() -> int:
+	## Extra biome detail stamps beyond base decal_count.
+	match q_level():
+		1:
+			return 18
+		2:
+			return 8
+		_:
+			return 36
+
+
 static func glow_enabled() -> bool:
 	return q_level() < 2
 
