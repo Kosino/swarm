@@ -92,7 +92,13 @@ func _ready() -> void:
 		var Bot = preload("res://tools/capture_bot.gd")
 		Bot.advance_apis(world, capture_at)
 		demo_on = false
-		world.cam_zoom = world.cam_zoom_target
+		## Pull out at later beats so comb rings / trails / meadow živá / dusk read.
+		if capture_at >= 600.0:
+			world.cam_zoom = minf(world.cam_zoom_target, C.CAM_ZOOM_OUT * 0.95)
+		elif capture_at >= 300.0:
+			world.cam_zoom = lerpf(C.CAM_ZOOM_IN, C.CAM_ZOOM_OUT, 0.35)
+		else:
+			world.cam_zoom = world.cam_zoom_target
 	SwarmAudio.set_ambient("apis")
 	_atm = Atm.apply(self, "apis", camera, hud)
 	hud.visible = demo_on
@@ -105,6 +111,7 @@ func _ready() -> void:
 		await get_tree().process_frame
 		await get_tree().process_frame
 		await get_tree().process_frame
+		print("capture_time_verify apis t=", world.time, " chambers=", world.chambers.size(), " trails=", world.trails.size(), " dusk=", world.dusk, " bloom=", world.meadow_bloom, " floor2=", world.floor2)
 		var img: Image = get_viewport().get_texture().get_image()
 		if img:
 			img.save_png(capture_out)
@@ -178,7 +185,9 @@ func _process(dt: float) -> void:
 	var h := _hive()
 	var h_iso := Iso.world_to_iso(h.x, h.y)
 	Atm.sync_light(_atm, h_iso, 0.4 + world.core_pulse * 0.28 + world.brass_sheen * 0.2)
-	Atm.set_dusk(_atm, world.dusk)
+	## Presentational dusk ramp from ~10:00 even if hint beat is late — readable 11:00 dusk.
+	var dusk_v: float = maxf(world.dusk, clampf((world.time - 560.0) / 140.0, 0.0, 1.0) * 0.85)
+	Atm.set_dusk(_atm, dusk_v)
 	if _atm.has("dust"):
 		(_atm["dust"] as Node2D).global_position = h_iso
 	_refresh_hud()
@@ -276,12 +285,17 @@ func _hive() -> Vector2:
 
 
 func _visual_reach() -> float:
-	var base: float = 100.0 + float(world.chambers.size()) * 6.5 + float(world.trails.size()) * 28.0 + world.time * 0.2
+	## Time-weighted so meadow živá spread reads clearly 5:00 → 11:00 → 15:00.
+	var base: float = 90.0 + float(world.chambers.size()) * 7.0 + float(world.trails.size()) * 32.0 + world.time * 0.28
 	if world.meadow2 != null:
-		base += 70.0
+		base += 80.0
 	if world.second_hive != null:
-		base += 90.0
-	return clampf(base, 100.0, 540.0)
+		base += 100.0
+	if world.meadow_bloom > 0.4:
+		base += 50.0
+	if world.dusk > 0.3:
+		base += 40.0
+	return clampf(base, 90.0, 580.0)
 
 
 func _terrain_stage(wx: float, wy: float) -> String:
@@ -348,21 +362,73 @@ func _tile_sc() -> float:
 	return TILE_SC_2X if _use_2x else TILE_SC_1X
 
 
+func _hash2(ix: int, iy: int) -> float:
+	var n: int = ix * 374761393 + iy * 668265263
+	n = (n ^ (n >> 13)) * 1274126177
+	return float(n & 0xffff) / 65535.0
+
+
+func _draw_tex_cell(tex: Texture2D, center: Vector2, cell: float, rot: float, modulate: Color) -> void:
+	if tex == null or modulate.a <= 0.01:
+		return
+	## Per macro-cell UV rotation breaks periodic pale stripe bands from single tiled fill.
+	draw_set_transform(center, rot, Vector2.ONE)
+	var half := cell * 0.5
+	draw_texture_rect(tex, Rect2(-half, -half, cell, cell), true, modulate)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
 func _draw_ground_base() -> void:
 	var c := Iso.world_to_iso(float(C.W) * 0.5, float(C.H) * 0.5)
 	var hw: float = float(C.W) * 1.55
 	var hh: float = float(C.H) * 1.05
 	draw_colored_polygon(_diamond_at(c, hw * 1.55, hh * 1.55), Color(0.12, 0.09, 0.05, 1.0))
-	var tex_key := "apis_tex_louka_divoka"
-	if _visual_reach() > 220.0:
-		tex_key = "apis_tex_louka_osazena"
-	if _visual_reach() > 380.0 or world.meadow_bloom > 0.4:
-		tex_key = "apis_tex_louka_ziva"
-	var tex: Texture2D = ProArt.tex(pro, tex_key)
-	if tex != null:
-		## Axis-aligned tiled fill — kills diagonal stripe bands from diamond UVs. Ground stays.
+	var t_div: Texture2D = ProArt.tex(pro, "apis_tex_louka_divoka")
+	var t_osa: Texture2D = ProArt.tex(pro, "apis_tex_louka_osazena")
+	var t_ziv: Texture2D = ProArt.tex(pro, "apis_tex_louka_ziva")
+	if t_div != null:
+		## Continuous base fill (no cell seams), then noise-blended rotated louka overlays
+		## break the baked diagonal pale stripes inside the seamless textures.
+		var reach: float = _visual_reach()
+		var bloom: float = world.meadow_bloom
 		var fill := Rect2(c.x - 2200.0, c.y - 1400.0, 4400.0, 2800.0)
-		draw_texture_rect(tex, fill, true)
+		var base: Texture2D = t_div
+		if reach > 220.0 and t_osa != null:
+			base = t_osa
+		if (reach > 380.0 or bloom > 0.4) and t_ziv != null:
+			base = t_ziv
+		draw_texture_rect(base, fill, true)
+		var cell: float = 520.0
+		var step: float = 260.0
+		var x0: float = c.x - 2200.0
+		var y0: float = c.y - 1400.0
+		var nx: int = int(ceil(4400.0 / step)) + 1
+		var ny: int = int(ceil(2800.0 / step)) + 1
+		for iy in range(ny):
+			for ix in range(nx):
+				var cx: float = x0 + float(ix) * step + cell * 0.5
+				var cy: float = y0 + float(iy) * step + cell * 0.5
+				var h0: float = _hash2(ix, iy)
+				var h1: float = _hash2(ix + 19, iy + 7)
+				var h2: float = _hash2(ix + 41, iy + 23)
+				var n: float = 0.5 + 0.5 * sin(float(ix) * 0.29 + float(iy) * 0.23) * cos(float(ix) * 0.15 - float(iy) * 0.37)
+				## Soft falloff toward cell edge — heavy overlap so overlays never read as a grid.
+				var edge: float = 0.55 + 0.45 * n
+				var rot: float = float(int(h2 * 4.0) % 4) * PI * 0.5
+				## Pick 1–2 non-base loukas by low-freq weights.
+				var use_osa: bool = t_osa != null and (h0 * clampf(reach / 240.0, 0.2, 1.0)) > 0.28
+				var use_ziv: bool = t_ziv != null and (h1 * clampf((reach - 160.0) / 300.0 + bloom * 0.6, 0.0, 1.0)) > 0.32
+				var use_div: bool = (base != t_div) and n > 0.42
+				if use_osa and base != t_osa:
+					_draw_tex_cell(t_osa, Vector2(cx, cy), cell, rot, Color(1, 1, 1, 0.28 * edge))
+				if use_ziv and base != t_ziv:
+					_draw_tex_cell(t_ziv, Vector2(cx, cy), cell, rot + PI * 0.5, Color(1, 1, 1, 0.32 * edge))
+				if use_div:
+					_draw_tex_cell(t_div, Vector2(cx, cy), cell, rot + PI, Color(1, 1, 1, 0.26 * edge))
+				## Always stamp one rotated alternate so stripe phase never aligns across neighbors.
+				var alt: Texture2D = t_osa if t_osa != null and base != t_osa else (t_ziv if t_ziv != null and base != t_ziv else t_div)
+				if alt != null and alt != base:
+					_draw_tex_cell(alt, Vector2(cx, cy), cell * 0.85, rot + float(ix + iy) * 0.5 * PI, Color(1, 1, 1, 0.18 + 0.12 * h0))
 		var rim: Texture2D = ProArt.tex(pro, "apis_tex_skala_okraj")
 		if rim != null:
 			var rim_pts := _diamond_at(c + Vector2(0, hh * 0.55), hw * 0.75, 56.0)
@@ -427,7 +493,9 @@ func _draw_meadow() -> void:
 	var has_fill: bool = ProArt.has(pro, "apis_tex_louka_divoka")
 	for ty in range(rows):
 		for tx in range(cols):
-			if has_fill and ((tx + ty * 3) % 3) != 0:
+			## Very sparse meadow sprites — diamond atlas tiles must not form a pale grid.
+			var sparse: int = 6 if _visual_reach() > 300.0 else 9
+			if has_fill and ((tx * 5 + ty * 7) % sparse) != 0:
 				continue
 			var wx: float = (float(tx) + 0.5) * tile
 			var wy: float = (float(ty) + 0.5) * tile
@@ -436,10 +504,12 @@ func _draw_meadow() -> void:
 			var stage: String = _terrain_stage(wx, wy)
 			var n := "apis2_louka_%s_%s" % [stage, variant]
 			if atlas.has(n):
-				var a: float = 0.26 if has_fill else 1.0
-				if stage == "ziva":
-					a = 0.4 if has_fill else 1.0
-				_blit(n, wx, wy, sc, Color(1, 1, 1, a))
+				var a: float = 0.08 if has_fill else 1.0
+				if stage == "osazena":
+					a = 0.14 if has_fill else 1.0
+				elif stage == "ziva":
+					a = 0.22 if has_fill else 1.0
+				_blit(n, wx, wy, sc * 0.85, Color(1, 1, 1, a))
 			elif not has_fill:
 				var iso := Iso.world_to_iso(wx, wy)
 				var shade := 0.42 - 0.03 * float(idx) - world.dusk * 0.08
@@ -448,7 +518,7 @@ func _draw_meadow() -> void:
 					Color(shade, shade * 0.92, shade * 0.7, 1.0)
 				)
 			if stage == "ziva" and atlas.has("apis2_overlay_kvet"):
-				_blit("apis2_overlay_kvet", wx, wy, sc * 0.9, Color(1, 1, 1, 0.14 + world.meadow_bloom * 0.2))
+				_blit("apis2_overlay_kvet", wx, wy, sc * 0.95, Color(1, 1, 1, 0.22 + world.meadow_bloom * 0.35))
 	if world.meadow2 != null:
 		var m2 = world.meadow2
 		if atlas.has("apis2_overlay_kvet"):
@@ -494,55 +564,83 @@ func _feromon_dir(dx: float, dy: float) -> String:
 	return "NW"
 
 
+func _draw_gold_trail(pts: Array, gold: float, pulse_phase: float = 0.0) -> void:
+	## Wide golden additive-looking trail with traveling pulse (hive → flowers / tree).
+	if pts.size() < 2:
+		return
+	var inten := _intensity(gold)
+	var pulse_t: float = fmod(world.time * 0.55 + pulse_phase, 1.0)
+	var sc_base: float = 0.72 if not _use_2x else 0.36
+	for i in range(1, pts.size()):
+		var p0 = pts[i - 1]
+		var p1 = pts[i]
+		var a2 := Iso.world_to_iso(float(p0.x), float(p0.y))
+		var b2 := Iso.world_to_iso(float(p1.x), float(p1.y))
+		var seg_u: float = float(i) / float(pts.size())
+		var pulse: float = exp(-pow((seg_u - pulse_t) * 4.5, 2.0))
+		var w: float = 7.5 + gold * 5.0 + pulse * 6.0
+		## Soft additive stacks — bright HDR modulate blooms via atmosphere glow.
+		draw_line(a2, b2, Color(1.35, 0.95, 0.28, 0.16 + gold * 0.12 + pulse * 0.18), w * 1.85, true)
+		draw_line(a2, b2, Color(1.7, 1.25, 0.45, 0.28 + gold * 0.22 + pulse * 0.35), w, true)
+		draw_line(a2, b2, Color(2.0, 1.6, 0.7, 0.22 + pulse * 0.45), maxf(2.0, w * 0.35), true)
+		var dir := _feromon_dir(float(p1.x) - float(p0.x), float(p1.y) - float(p0.y))
+		var fname := "apis2_feromon_%s_%s" % [inten, dir]
+		var glow_col := Color(1.65 + pulse * 0.5, 1.3 + pulse * 0.35, 0.45, 0.45 + gold * 0.35 + pulse * 0.3)
+		if atlas.has(fname):
+			_blit(fname, (float(p0.x) + float(p1.x)) * 0.5, (float(p0.y) + float(p1.y)) * 0.5, sc_base * (0.95 + pulse * 0.25), glow_col)
+	var last = pts[pts.size() - 1]
+	var prev = pts[pts.size() - 2]
+	var tip := "apis2_feromon_tip_%s_%s" % [inten, _feromon_dir(float(last.x) - float(prev.x), float(last.y) - float(prev.y))]
+	if not atlas.has(tip):
+		tip = "apis2_feromon_tip"
+	if atlas.has(tip):
+		_blit(tip, float(last.x), float(last.y), sc_base, Color(1.7, 1.35, 0.5, 0.8))
+	if atlas.has("apis2_feromon_uzel_%s" % inten) and pts.size() > 2:
+		var mid = pts[pts.size() / 2]
+		_blit("apis2_feromon_uzel_%s" % inten, float(mid.x), float(mid.y), sc_base * 0.75, Color(1.55, 1.25, 0.48, 0.55 + gold * 0.3))
+
+
 func _draw_routes_trails() -> void:
 	var hc := _hive()
-	## Feromon sprites only — no hard gold axis lines.
-	for tr in world.trails:
+	## Wide golden additive trails hive→flowers/tree with pulse — no hard ruler axes.
+	for tr_i in range(world.trails.size()):
+		var tr = world.trails[tr_i]
 		if tr.pts.size() < 2:
 			continue
-		var gold: float = world.highway_glow if tr.kind in ["join", "highway"] else tr.glow
-		var inten := _intensity(gold)
-		for i in range(1, tr.pts.size()):
-			var p0 = tr.pts[i - 1]
-			var p1 = tr.pts[i]
-			var dir := _feromon_dir(p1.x - p0.x, p1.y - p0.y)
-			var fname := "apis2_feromon_%s_%s" % [inten, dir]
-			var glow_col := Color(1.45, 1.2, 0.5, 0.55 + gold * 0.3)
-			if atlas.has(fname):
-				_blit(fname, (p0.x + p1.x) * 0.5, (p0.y + p1.y) * 0.5, 0.42 if not _use_2x else 0.21, glow_col)
-			else:
-				var a2 := Iso.world_to_iso(p0.x, p0.y)
-				var b2 := Iso.world_to_iso(p1.x, p1.y)
-				draw_line(a2, b2, Color(1.0, 0.78, 0.3, 0.28 + gold * 0.25), 2.0, true)
-		var last = tr.pts[tr.pts.size() - 1]
-		var prev = tr.pts[tr.pts.size() - 2]
-		var tip := "apis2_feromon_tip_%s_%s" % [inten, _feromon_dir(last.x - prev.x, last.y - prev.y)]
-		if not atlas.has(tip):
-			tip = "apis2_feromon_tip"
-		if atlas.has(tip):
-			_blit(tip, last.x, last.y, 0.42 if not _use_2x else 0.21, Color(1.5, 1.25, 0.5, 0.75))
-		if atlas.has("apis2_feromon_uzel_%s" % inten) and tr.pts.size() > 2:
-			var mid = tr.pts[tr.pts.size() / 2]
-			_blit("apis2_feromon_uzel_%s" % inten, mid.x, mid.y, 0.32 if not _use_2x else 0.16, Color(1.45, 1.2, 0.48, 0.5 + gold * 0.25))
+		var gold: float = world.highway_glow if tr.kind in ["join", "highway"] else maxf(tr.glow, 0.55)
+		_draw_gold_trail(tr.pts, gold, float(tr_i) * 0.17)
+	## Route ribbons toward each flower / tree so streams stay readable even without stroke trails.
+	for rt_i in range(world.routes.size()):
+		var rt = world.routes[rt_i]
+		var fi: int = int(rt.flower) if rt.has("flower") else -1
+		if fi < 0 or fi >= world.flowers.size():
+			continue
+		var f = world.flowers[fi]
+		var gold_r: float = 0.45 + float(rt.get("glow", 0.3)) * 0.6 + (0.2 if f.get("tree", false) else 0.0)
+		var bend := Vector2(-18.0 + float(rt_i) * 3.0, 12.0 - float(rt_i) * 2.0)
+		var pts_r: Array = []
+		var steps_r := 7
+		for s in range(steps_r + 1):
+			var u: float = float(s) / float(steps_r)
+			var p: Vector2 = hc.lerp(Vector2(f.x, f.y), u) + bend * sin(u * PI)
+			pts_r.append({"x": p.x, "y": p.y})
+		_draw_gold_trail(pts_r, gold_r, 0.33 + float(rt_i) * 0.11)
 	if world.stroke_active:
 		for i in range(1, world.stroke_pts.size()):
 			var a3 := Iso.world_to_iso(world.stroke_pts[i - 1].x, world.stroke_pts[i - 1].y)
 			var b3 := Iso.world_to_iso(world.stroke_pts[i].x, world.stroke_pts[i].y)
-			draw_line(a3, b3, Color(1.0, 0.82, 0.35, 0.32), 1.6, true)
+			draw_line(a3, b3, Color(1.2, 0.9, 0.35, 0.28), 4.0, true)
+			draw_line(a3, b3, Color(1.7, 1.3, 0.5, 0.4), 1.8, true)
 	if world.second_hive != null:
 		var sh = world.second_hive
-		var steps := 8
-		for s in range(1, steps + 1):
-			var t0: float = float(s - 1) / float(steps)
+		var hwy: Array = []
+		var steps := 10
+		for s in range(steps + 1):
 			var t1: float = float(s) / float(steps)
-			## Slight curve so highway never reads as a ruler axis.
-			var bend := Vector2(-22.0, 14.0) * sin(t1 * PI)
-			var q0 := hc.lerp(Vector2(sh.x, sh.y), t0) + bend * t0
-			var q1 := hc.lerp(Vector2(sh.x, sh.y), t1) + bend * t1
-			var dir2 := _feromon_dir(q1.x - q0.x, q1.y - q0.y)
-			var fn := "apis2_feromon_silna_%s" % dir2
-			if atlas.has(fn):
-				_blit(fn, (q0.x + q1.x) * 0.5, (q0.y + q1.y) * 0.5, 0.28 if not _use_2x else 0.14, Color(1.35, 1.1, 0.48, 0.4 + world.highway_glow * 0.35))
+			var bend2 := Vector2(-22.0, 14.0) * sin(t1 * PI)
+			var q1 := hc.lerp(Vector2(sh.x, sh.y), t1) + bend2 * t1
+			hwy.append({"x": q1.x, "y": q1.y})
+		_draw_gold_trail(hwy, 0.7 + world.highway_glow * 0.5, 0.08)
 		var uln := "apis2_ul_zarivy" if sh.pulse > 0.4 or world.highway_glow > 0.5 else "apis2_ul_dostaveny"
 		if atlas.has(uln):
 			_blit(uln, sh.x, sh.y, 0.35 if not _use_2x else 0.18, Color(1, 1, 1, 0.75 + sh.pulse * 0.2))
@@ -568,19 +666,28 @@ func _draw_chambers() -> void:
 		return
 	var items: Array = []
 	var hive := _hive()
+	var max_ring: float = 0.0
+	for ch0 in world.chambers.values():
+		max_ring = maxf(max_ring, sqrt(float(ch0.q * ch0.q + ch0.r * ch0.r + ch0.q * ch0.r)))
 	for ch in world.chambers.values():
-		var p: Vector2 = world._axial_to_pixel(ch.q, ch.r)
-		## Organic comb mound — heavy core pull + ring stagger (break hex lattice).
 		var ring: float = sqrt(float(ch.q * ch.q + ch.r * ch.r + ch.q * ch.r))
-		var jx: float = sin(float(ch.q) * 2.1 + float(ch.r) * 1.6) * (7.5 + ring * 1.2)
-		var jy: float = cos(float(ch.q) * 1.4 - float(ch.r) * 2.0) * (6.2 + ring * 0.9)
-		var toward := (hive - p) * (0.18 + ring * 0.02)
-		var spiral := Vector2(cos(float(ch.q + ch.r) * 0.85), sin(float(ch.q - ch.r) * 0.7)) * (5.0 + ring)
+		## Organic gaps / missing outer cells — leave holes in the rim lattice.
+		var gap_h: float = _hash2(int(ch.q) + 50, int(ch.r) + 70)
+		if ring > maxf(1.2, max_ring * 0.55) and gap_h < 0.28:
+			continue
+		var p: Vector2 = world._axial_to_pixel(ch.q, ch.r)
+		## Organic comb mound — heavier jitter + core pull (break hex lattice).
+		var jx: float = sin(float(ch.q) * 2.1 + float(ch.r) * 1.6) * (9.5 + ring * 1.8)
+		var jy: float = cos(float(ch.q) * 1.4 - float(ch.r) * 2.0) * (8.2 + ring * 1.4)
+		var toward := (hive - p) * (0.22 + ring * 0.035)
+		var spiral := Vector2(cos(float(ch.q + ch.r) * 0.85), sin(float(ch.q - ch.r) * 0.7)) * (6.5 + ring * 1.3)
 		p += Vector2(jx, jy) + toward + spiral
 		var iso := Iso.world_to_iso(p.x, p.y)
-		var rot: float = sin(float(ch.q) * 1.15 + float(ch.r) * 1.55) * 0.38
-		var sc_jit: float = 0.72 + 0.4 * abs(sin(float(ch.q) * 1.3 + float(ch.r) * 0.9))
-		items.append({"ch": ch, "p": p, "iso_y": iso.y, "rot": rot, "sc_jit": sc_jit})
+		var rot: float = sin(float(ch.q) * 1.15 + float(ch.r) * 1.55) * 0.48
+		var sc_jit: float = 0.62 + 0.5 * abs(sin(float(ch.q) * 1.3 + float(ch.r) * 0.9))
+		## Half-built rim bias — outer ring stays rozestaveny / smaller.
+		var rim: bool = ring >= maxf(1.4, max_ring * 0.72)
+		items.append({"ch": ch, "p": p, "iso_y": iso.y, "rot": rot, "sc_jit": sc_jit, "ring": ring, "rim": rim})
 	items.sort_custom(func(a, b): return a.iso_y < b.iso_y)
 	var sc: float = 0.46 if not _use_2x else 0.23
 	sc *= world.hive_scale
@@ -588,20 +695,30 @@ func _draw_chambers() -> void:
 		var ch = it.ch
 		var p: Vector2 = it.p
 		var grow: float = ch.grow
+		var rim: bool = bool(it.rim)
 		var stage := _plast_stage(ch)
+		if rim:
+			stage = "rozestaveny"
+			grow = minf(grow, 0.55 + 0.2 * _hash2(int(ch.q) + 3, int(ch.r) + 9))
+		elif float(it.ring) <= 0.8 and (world.brass_sheen > 0.2 or world.core_pulse > 0.4):
+			stage = "zarivy"
 		var pname := "apis2_plast_%s" % stage
-		var mod := Color(1, 1, 1, 0.45 + grow * 0.5)
-		if ch.amber > 0.05:
+		var mod := Color(1, 1, 1, 0.4 + grow * 0.55)
+		if ch.amber > 0.05 and not rim:
 			mod = mod.lerp(Color(1.15, 0.9, 0.45, 0.95), ch.amber * 0.4)
-		if world.brass_sheen > 0.0:
+		if world.brass_sheen > 0.0 and not rim:
 			mod = mod.lerp(Color(1.2, 0.95, 0.55, 1.0), world.brass_sheen * 0.35)
 		if world.rust_chamber != null and world._hex_key(ch.q, ch.r) == world.rust_chamber and world.winter_time == null:
 			mod = mod.lerp(Color(0.85, 0.45, 0.3, 0.95), 0.45 + world.cold * 0.3)
 		_draw_soft_shadow(p.x, p.y, 8.0 + grow * 4.0, 0.2 + grow * 0.1)
 		if atlas.has(pname):
-			var psz: float = sc * (0.7 + grow * 0.3) * float(it.sc_jit)
+			var core_boost: float = 1.18 - clampf(float(it.ring) / maxf(max_ring, 1.0), 0.0, 1.0) * 0.35
+			var psz: float = sc * (0.62 + grow * 0.38) * float(it.sc_jit) * core_boost
+			if rim:
+				psz *= 0.78
 			_blit_rot(pname, p.x, p.y, psz, mod, float(it.rot))
-			if (world.floor2 or world.floor3):
+			## Stack height only near center — dome reads as tallest mound.
+			if (world.floor2 or world.floor3) and float(it.ring) < max_ring * 0.55 and not rim:
 				var stack: Vector2 = Vector2.ZERO
 				var e1: Dictionary = atlas[pname]
 				if e1.has("stack_offset"):
@@ -611,7 +728,7 @@ func _draw_chambers() -> void:
 				var upper := "apis2_plast_zarivy" if stage == "zarivy" else "apis2_plast_dostaveny"
 				if atlas.has(upper):
 					_blit_rot(upper, p.x, p.y, psz, mod, float(it.rot) * 0.5, stack)
-					if world.floor3:
+					if world.floor3 and float(it.ring) < 1.2:
 						_blit_rot(upper, p.x, p.y, psz, mod, float(it.rot) * -0.35, stack * 1.85)
 		else:
 			var half: float = C.HEX * 0.45 * (0.55 + grow * 0.45)
@@ -622,9 +739,12 @@ func _draw_chambers() -> void:
 		if world.time < 90.0 and world.chambers.size() < 4:
 			ul = "apis2_ul_rozestaveny"
 		if atlas.has(ul):
-			_blit(ul, world.core.x, world.core.y, 0.42 if not _use_2x else 0.21, Color(1, 1, 1, 0.85 + world.core_pulse * 0.15))
+			## Tallest center dome — scale + lift so úl crowns the comb mound.
+			var ul_sc: float = (0.62 if not _use_2x else 0.31) * maxf(1.0, world.hive_scale * 0.92)
+			var lift := Vector2(0.0, -18.0 - 10.0 * world.hive_scale)
+			_blit(ul, world.core.x, world.core.y, ul_sc, Color(1, 1, 1, 0.9 + world.core_pulse * 0.1), lift)
 		if atlas.has("apis2_overlay_med") and world.core_pulse > 0.2:
-			_blit("apis2_overlay_med", world.core.x, world.core.y, 0.35 if not _use_2x else 0.18, Color(1.35, 1.15, 0.7, 0.25 + world.core_pulse * 0.35))
+			_blit("apis2_overlay_med", world.core.x, world.core.y, 0.4 if not _use_2x else 0.2, Color(1.35, 1.15, 0.7, 0.25 + world.core_pulse * 0.35), Vector2(0, -22))
 	if world.rust_machine != null:
 		var rm = world.rust_machine
 		if ProArt.has(pro, "apis_rust_machine"):
@@ -682,14 +802,23 @@ func _bee_dir(dx: float, dy: float) -> String:
 
 
 func _draw_builders() -> void:
-	## Visual-only stavitelky ferrying wax to growing chambers.
+	## Visual-only stavitelky on the half-built rim (and any still-growing cells).
 	var hive := _hive()
 	var sc: float = 0.42 if not _use_2x else 0.21
+	var max_ring: float = 0.0
+	for ch0 in world.chambers.values():
+		max_ring = maxf(max_ring, sqrt(float(ch0.q * ch0.q + ch0.r * ch0.r + ch0.q * ch0.r)))
+	var drawn := 0
 	for ch in world.chambers.values():
-		if ch.grow >= 1.0:
+		var ring: float = sqrt(float(ch.q * ch.q + ch.r * ch.r + ch.q * ch.r))
+		var rim: bool = ring >= maxf(1.4, max_ring * 0.72)
+		if ch.grow >= 1.0 and not rim:
 			continue
+		## Prefer parking stavitelka near unfinished rim cells.
 		var p: Vector2 = world._axial_to_pixel(ch.q, ch.r)
 		var t: float = fmod(world.time * 0.55 + float(ch.q) * 0.17 + float(ch.r) * 0.13, 1.0)
+		if rim:
+			t = 0.72 + 0.22 * sin(world.time * 1.1 + float(ch.q))
 		var bx: float = lerpf(hive.x, p.x, t)
 		var by: float = lerpf(hive.y, p.y, t)
 		var dir := _bee_dir(p.x - hive.x, p.y - hive.y)
@@ -698,6 +827,9 @@ func _draw_builders() -> void:
 			name = "apis2_stavitelka_%s" % dir
 		if atlas.has(name):
 			_blit(name, bx, by, sc)
+			drawn += 1
+			if drawn > 10:
+				break
 
 
 func _draw_workers() -> void:

@@ -157,7 +157,10 @@ static func set_dusk(nodes: Dictionary, dusk: float) -> void:
 	if not nodes.has("mood"):
 		return
 	var mood: CanvasModulate = nodes["mood"]
-	## Day → dusk: cooler magenta-amber wash for Apis (kept bright enough to avoid rings).
+	## Day → dusk: warmer amber-magenta wash — readable at 11:00 captures.
 	var day := Color(1.02, 0.99, 0.94)
-	var eve := Color(0.92, 0.82, 0.98)
+	var eve := Color(0.88, 0.72, 0.95)
 	mood.color = day.lerp(eve, clampf(dusk, 0.0, 1.0))
+	if nodes.has("dust") and dusk > 0.15:
+		var dust: CPUParticles2D = nodes["dust"]
+		dust.color = Color(1.0, 0.78, 0.55, 0.28 + dusk * 0.2)
