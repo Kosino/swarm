@@ -1,4 +1,5 @@
 ## Isometric Apis — Build 12 pro art (seamless meadow, atmosphere, organic hive).
+## Build #18 — draw budget / settings / keybind help.
 extends Node2D
 
 const C = preload("res://apis/config.gd")
@@ -46,6 +47,9 @@ var _prev_chambers: int = 0
 var _prev_wax: float = -1.0
 var _prev_nectar_flag = null
 var _had_planted: bool = false
+var help_open: bool = false
+var _view: Rect2 = Rect2()
+var _help_draw: Node2D
 
 
 func _ready() -> void:
@@ -56,6 +60,8 @@ func _ready() -> void:
 	if "--demo" in args or "demo" in args:
 		demo_on = true
 	## Diegetic default — debug HUD only via F1.
+	SwarmGfx.apply()
+	_setup_help_layer()
 	_use_2x = DisplayServer.screen_get_scale() >= 1.5
 	atlas = Atlas.load_all(_use_2x)
 	sequences = Atlas.load_sequences(_use_2x)
@@ -122,6 +128,23 @@ func _ready() -> void:
 			img.save_png(capture_out)
 			print("capture_saved ", capture_out)
 		get_tree().quit()
+
+
+func _setup_help_layer() -> void:
+	var layer := CanvasLayer.new()
+	layer.name = "HelpOverlay"
+	layer.layer = 90
+	_help_draw = Node2D.new()
+	_help_draw.name = "HelpDraw"
+	_help_draw.set_script(load("res://ui/help_overlay.gd"))
+	layer.add_child(_help_draw)
+	add_child(layer)
+
+
+func _set_help(open: bool) -> void:
+	help_open = open
+	if _help_draw and _help_draw.has_method("set_open"):
+		_help_draw.call("set_open", open)
 
 
 func _catch_up(target: float) -> void:
@@ -227,9 +250,17 @@ func _fmt_clock(t: float) -> String:
 func _unhandled_input(event: InputEvent) -> void:
 	if world == null:
 		return
-	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_ESCAPE:
-		_return_menu(false)
-		return
+	if event is InputEventKey and event.pressed and not event.echo:
+		var k: int = event.physical_keycode
+		if k == KEY_ESCAPE:
+			if help_open:
+				_set_help(false)
+				return
+			_return_menu(false)
+			return
+		if k == KEY_H or k == KEY_SLASH:
+			_set_help(not help_open)
+			return
 	if event.is_action_pressed("toggle_demo"):
 		demo_on = not demo_on
 		hud.visible = demo_on
@@ -391,6 +422,7 @@ func _chamber_pixel(ch: Dictionary) -> Vector2:
 func _draw() -> void:
 	if world == null:
 		return
+	_view = SwarmGfx.view_bounds(camera)
 	_draw_ground_base()
 	_draw_meadow()
 	_draw_routes_trails()
@@ -445,15 +477,18 @@ func _draw_ground_base() -> void:
 			base = t_ziv
 		draw_texture_rect(base, fill, true)
 		var cell: float = 520.0
-		var step: float = 260.0
+		var step: float = 260.0 * SwarmGfx.ground_overlay_step_mul()
 		var x0: float = c.x - 2200.0
 		var y0: float = c.y - 1400.0
 		var nx: int = int(ceil(4400.0 / step)) + 1
 		var ny: int = int(ceil(2800.0 / step)) + 1
+		var ql: int = SwarmGfx.q_level()
 		for iy in range(ny):
 			for ix in range(nx):
 				var cx: float = x0 + float(ix) * step + cell * 0.5
 				var cy: float = y0 + float(iy) * step + cell * 0.5
+				if not SwarmGfx.iso_in_view(Vector2(cx, cy), _view):
+					continue
 				var h0: float = _hash2(ix, iy)
 				var h1: float = _hash2(ix + 19, iy + 7)
 				var h2: float = _hash2(ix + 41, iy + 23)
@@ -464,17 +499,18 @@ func _draw_ground_base() -> void:
 				## Pick 1–2 non-base loukas by low-freq weights.
 				var use_osa: bool = t_osa != null and (h0 * clampf(reach / 240.0, 0.2, 1.0)) > 0.28
 				var use_ziv: bool = t_ziv != null and (h1 * clampf((reach - 160.0) / 300.0 + bloom * 0.6, 0.0, 1.0)) > 0.32
-				var use_div: bool = (base != t_div) and n > 0.42
+				var use_div: bool = (base != t_div) and n > 0.42 and ql < 2
 				if use_osa and base != t_osa:
 					_draw_tex_cell(t_osa, Vector2(cx, cy), cell, rot, Color(1, 1, 1, 0.28 * edge))
-				if use_ziv and base != t_ziv:
+				if use_ziv and base != t_ziv and ql < 2:
 					_draw_tex_cell(t_ziv, Vector2(cx, cy), cell, rot + PI * 0.5, Color(1, 1, 1, 0.32 * edge))
 				if use_div:
 					_draw_tex_cell(t_div, Vector2(cx, cy), cell, rot + PI, Color(1, 1, 1, 0.26 * edge))
 				## Always stamp one rotated alternate so stripe phase never aligns across neighbors.
-				var alt: Texture2D = t_osa if t_osa != null and base != t_osa else (t_ziv if t_ziv != null and base != t_ziv else t_div)
-				if alt != null and alt != base:
-					_draw_tex_cell(alt, Vector2(cx, cy), cell * 0.85, rot + float(ix + iy) * 0.5 * PI, Color(1, 1, 1, 0.18 + 0.12 * h0))
+				if ql == 0:
+					var alt: Texture2D = t_osa if t_osa != null and base != t_osa else (t_ziv if t_ziv != null and base != t_ziv else t_div)
+					if alt != null and alt != base:
+						_draw_tex_cell(alt, Vector2(cx, cy), cell * 0.85, rot + float(ix + iy) * 0.5 * PI, Color(1, 1, 1, 0.18 + 0.12 * h0))
 		var rim: Texture2D = ProArt.tex(pro, "apis_tex_skala_okraj")
 		if rim != null:
 			var rim_pts := _diamond_at(c + Vector2(0, hh * 0.55), hw * 0.75, 56.0)
@@ -537,14 +573,19 @@ func _draw_meadow() -> void:
 	var rows: int = world.meadow_rows
 	var sc: float = _tile_sc()
 	var has_fill: bool = ProArt.has(pro, "apis_tex_louka_divoka")
+	var ql: int = SwarmGfx.q_level()
 	for ty in range(rows):
 		for tx in range(cols):
 			## Very sparse meadow sprites — diamond atlas tiles must not form a pale grid.
 			var sparse: int = 6 if _visual_reach() > 300.0 else 9
+			sparse += ql * 3
 			if has_fill and ((tx * 5 + ty * 7) % sparse) != 0:
 				continue
 			var wx: float = (float(tx) + 0.5) * tile
 			var wy: float = (float(ty) + 0.5) * tile
+			var iso0 := Iso.world_to_iso(wx, wy)
+			if not SwarmGfx.iso_in_view(iso0, _view):
+				continue
 			var idx: int = (ty * cols + tx) % 3
 			var variant: String = ["a", "b", "c"][idx]
 			var stage: String = _terrain_stage(wx, wy)
@@ -557,13 +598,12 @@ func _draw_meadow() -> void:
 					a = 0.22 if has_fill else 1.0
 				_blit(n, wx, wy, sc * 0.85, Color(1, 1, 1, a))
 			elif not has_fill:
-				var iso := Iso.world_to_iso(wx, wy)
 				var shade := 0.42 - 0.03 * float(idx) - world.dusk * 0.08
 				draw_colored_polygon(
-					_diamond_at(iso, tile * 0.56, tile * 0.28),
+					_diamond_at(iso0, tile * 0.56, tile * 0.28),
 					Color(shade, shade * 0.92, shade * 0.7, 1.0)
 				)
-			if stage == "ziva" and atlas.has("apis2_overlay_kvet"):
+			if ql < 2 and stage == "ziva" and atlas.has("apis2_overlay_kvet"):
 				_blit("apis2_overlay_kvet", wx, wy, sc * 0.95, Color(1, 1, 1, 0.22 + world.meadow_bloom * 0.35))
 	if world.meadow2 != null:
 		var m2 = world.meadow2
@@ -587,16 +627,20 @@ func _draw_meadow_decals() -> void:
 	if present.is_empty():
 		return
 	var sc: float = 0.4 if not _use_2x else 0.2
-	for i in range(52):
+	var decal_n: int = mini(52, SwarmGfx.decal_count() + 4)
+	for i in range(decal_n):
 		var ang: float = float(i) * 2.399963
 		var rad: float = 60.0 + fmod(float(i * 53), 400.0)
 		var wx: float = hive.x + cos(ang) * rad
 		var wy: float = hive.y + sin(ang) * rad * 0.7
 		if wx < -40.0 or wy < -40.0 or wx > float(C.W) + 40.0 or wy > float(C.H) + 40.0:
 			continue
+		var iso_d := Iso.world_to_iso(wx, wy)
+		if not SwarmGfx.iso_in_view(iso_d, _view):
+			continue
 		var key: String = present[i % present.size()]
 		var a: float = 0.58 if i % 4 == 0 else 0.4
-		ProArt.blit(self, pro, key, Iso.world_to_iso(wx, wy), sc * (0.85 + float(i % 5) * 0.05), Color(1, 1, 1, a))
+		ProArt.blit(self, pro, key, iso_d, sc * (0.85 + float(i % 5) * 0.05), Color(1, 1, 1, a))
 
 
 func _feromon_dir(dx: float, dy: float) -> String:
@@ -612,23 +656,36 @@ func _feromon_dir(dx: float, dy: float) -> String:
 
 func _draw_gold_trail(pts: Array, gold: float, pulse_phase: float = 0.0) -> void:
 	## Wide golden additive-looking trail with traveling pulse (hive → flowers / tree).
+	## Build #18: quality-scaled line passes + sprite batch stride.
 	if pts.size() < 2:
 		return
 	var inten := _intensity(gold)
 	var pulse_t: float = fmod(world.time * 0.55 + pulse_phase, 1.0)
 	var sc_base: float = 0.72 if not _use_2x else 0.36
+	var line_passes: int = SwarmGfx.trail_line_passes()
+	var blit_every: int = SwarmGfx.trail_blit_every()
 	for i in range(1, pts.size()):
 		var p0 = pts[i - 1]
 		var p1 = pts[i]
 		var a2 := Iso.world_to_iso(float(p0.x), float(p0.y))
 		var b2 := Iso.world_to_iso(float(p1.x), float(p1.y))
+		if not SwarmGfx.iso_in_view(a2, _view) and not SwarmGfx.iso_in_view(b2, _view):
+			continue
 		var seg_u: float = float(i) / float(pts.size())
 		var pulse: float = exp(-pow((seg_u - pulse_t) * 4.5, 2.0))
 		var w: float = 7.5 + gold * 5.0 + pulse * 6.0
 		## Soft additive stacks — bright HDR modulate blooms via atmosphere glow.
-		draw_line(a2, b2, Color(1.35, 0.95, 0.28, 0.16 + gold * 0.12 + pulse * 0.18), w * 1.85, true)
-		draw_line(a2, b2, Color(1.7, 1.25, 0.45, 0.28 + gold * 0.22 + pulse * 0.35), w, true)
-		draw_line(a2, b2, Color(2.0, 1.6, 0.7, 0.22 + pulse * 0.45), maxf(2.0, w * 0.35), true)
+		if line_passes >= 3:
+			draw_line(a2, b2, Color(1.35, 0.95, 0.28, 0.16 + gold * 0.12 + pulse * 0.18), w * 1.85, true)
+			draw_line(a2, b2, Color(1.7, 1.25, 0.45, 0.28 + gold * 0.22 + pulse * 0.35), w, true)
+			draw_line(a2, b2, Color(2.0, 1.6, 0.7, 0.22 + pulse * 0.45), maxf(2.0, w * 0.35), true)
+		elif line_passes >= 2:
+			draw_line(a2, b2, Color(1.4, 1.0, 0.32, 0.2 + gold * 0.14 + pulse * 0.2), w * 1.55, true)
+			draw_line(a2, b2, Color(1.85, 1.4, 0.55, 0.32 + gold * 0.25 + pulse * 0.35), maxf(2.2, w * 0.55), true)
+		else:
+			draw_line(a2, b2, Color(1.7, 1.25, 0.45, 0.35 + gold * 0.25 + pulse * 0.3), w, true)
+		if (i % blit_every) != 0:
+			continue
 		var dir := _feromon_dir(float(p1.x) - float(p0.x), float(p1.y) - float(p0.y))
 		var fname := "apis2_feromon_%s_%s" % [inten, dir]
 		var glow_col := Color(1.65 + pulse * 0.5, 1.3 + pulse * 0.35, 0.45, 0.45 + gold * 0.35 + pulse * 0.3)
@@ -641,7 +698,7 @@ func _draw_gold_trail(pts: Array, gold: float, pulse_phase: float = 0.0) -> void
 		tip = "apis2_feromon_tip"
 	if atlas.has(tip):
 		_blit(tip, float(last.x), float(last.y), sc_base, Color(1.7, 1.35, 0.5, 0.8))
-	if atlas.has("apis2_feromon_uzel_%s" % inten) and pts.size() > 2:
+	if SwarmGfx.q_level() < 2 and atlas.has("apis2_feromon_uzel_%s" % inten) and pts.size() > 2:
 		var mid = pts[pts.size() / 2]
 		_blit("apis2_feromon_uzel_%s" % inten, float(mid.x), float(mid.y), sc_base * 0.75, Color(1.55, 1.25, 0.48, 0.55 + gold * 0.3))
 
@@ -772,7 +829,10 @@ func _draw_chambers() -> void:
 			mod = mod.lerp(Color(0.85, 0.45, 0.3, 0.95), 0.45 + world.cold * 0.3)
 		if world.drought > 0.2 and world.winter_time == null and not rim:
 			mod = mod.lerp(Color(0.95, 0.75, 0.5, 0.95), world.drought * 0.22)
-		_draw_soft_shadow(p.x, p.y, 8.0 + grow * 4.0, 0.2 + grow * 0.1)
+		if not SwarmGfx.iso_in_view(Iso.world_to_iso(p.x, p.y), _view):
+			continue
+		if SwarmGfx.soft_shadows():
+			_draw_soft_shadow(p.x, p.y, 8.0 + grow * 4.0, 0.2 + grow * 0.1)
 		if atlas.has(pname):
 			var core_boost: float = 1.18 - clampf(float(it.ring) / maxf(max_ring, 1.0), 0.0, 1.0) * 0.35
 			var psz: float = sc * (0.62 + grow * 0.38) * float(it.sc_jit) * core_boost
@@ -895,6 +955,7 @@ func _draw_builders() -> void:
 	for ch0 in world.chambers.values():
 		max_ring = maxf(max_ring, sqrt(float(ch0.q * ch0.q + ch0.r * ch0.r + ch0.q * ch0.r)))
 	var drawn := 0
+	var max_b: int = SwarmGfx.max_builders_drawn()
 	for ch in world.chambers.values():
 		var ring: float = sqrt(float(ch.q * ch.q + ch.r * ch.r + ch.q * ch.r))
 		var rim: bool = ring >= maxf(1.4, max_ring * 0.72)
@@ -907,6 +968,8 @@ func _draw_builders() -> void:
 			t = 0.72 + 0.22 * sin(world.time * 1.1 + float(ch.q))
 		var bx: float = lerpf(hive.x, p.x, t)
 		var by: float = lerpf(hive.y, p.y, t)
+		if not SwarmGfx.iso_in_view(Iso.world_to_iso(bx, by), _view):
+			continue
 		var dir := _bee_dir(p.x - hive.x, p.y - hive.y)
 		var name := "apis2_stavitelka_neseni_%s" % dir
 		if not atlas.has(name):
@@ -914,12 +977,18 @@ func _draw_builders() -> void:
 		if atlas.has(name):
 			_blit(name, bx, by, sc)
 			drawn += 1
-			if drawn > 10:
+			if drawn >= max_b:
 				break
 
 
 func _draw_workers() -> void:
+	var drawn := 0
+	var max_w: int = SwarmGfx.max_workers_drawn()
 	for w in world.workers:
+		if drawn >= max_w:
+			break
+		if not SwarmGfx.iso_in_view(Iso.world_to_iso(w.x, w.y), _view):
+			continue
 		var dir := "SE"
 		if w.outbound and w.flower >= 0 and w.flower < world.flowers.size():
 			var f = world.flowers[w.flower]
@@ -932,12 +1001,13 @@ func _draw_workers() -> void:
 			name = "apis2_letavka_SE"
 		if atlas.has(name):
 			_blit(name, w.x, w.y, 0.45 if not _use_2x else 0.22)
-			if w.carrying and atlas.has("apis2_overlay_med"):
+			if w.carrying and atlas.has("apis2_overlay_med") and SwarmGfx.q_level() < 2:
 				_blit("apis2_overlay_med", w.x, w.y, 0.18 if not _use_2x else 0.09, Color(1, 1, 1, 0.55))
 		else:
 			var iso := Iso.world_to_iso(w.x, w.y)
 			var col := Color(0.85, 0.75, 0.35, 0.95) if w.carrying else Color(0.45, 0.42, 0.38, 0.9)
 			draw_circle(iso, 2.2, col)
+		drawn += 1
 
 
 func _draw_juice() -> void:

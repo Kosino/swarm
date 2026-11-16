@@ -13,7 +13,7 @@ static func apply(host: Node2D, rod: String, camera: Camera2D, hud: CanvasLayer)
 
 	var env := Environment.new()
 	env.background_mode = Environment.BG_CANVAS
-	env.glow_enabled = true
+	env.glow_enabled = SwarmGfx.glow_enabled()
 	env.glow_intensity = 0.62 if rod == "apis" else 0.55
 	env.glow_strength = 0.95
 	env.glow_bloom = 0.14
@@ -63,9 +63,9 @@ static func apply(host: Node2D, rod: String, camera: Camera2D, hud: CanvasLayer)
 
 	var dust := CPUParticles2D.new()
 	dust.name = "AmbientDust"
-	dust.amount = 40
+	dust.amount = SwarmGfx.dust_amount()
 	dust.lifetime = 7.0
-	dust.preprocess = 3.0
+	dust.preprocess = 3.0 if SwarmGfx.q_level() == 0 else 1.0
 	dust.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
 	dust.emission_rect_extents = Vector2(520, 320)
 	dust.direction = Vector2(0.15, -0.35)

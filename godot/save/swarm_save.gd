@@ -15,6 +15,9 @@ static func _empty() -> Dictionary:
 		"grown": {"apis": false, "mycelium": false},
 		"volume": 0.85,
 		"muted": false,
+		"quality": "high",
+		"resolution": "native",
+		"fullscreen": false,
 		"updated": 0,
 	}
 
@@ -42,6 +45,9 @@ static func load_all() -> Dictionary:
 		}
 	out.volume = float(d.get("volume", 0.85))
 	out.muted = bool(d.get("muted", false))
+	out.quality = str(d.get("quality", "high"))
+	out.resolution = str(d.get("resolution", "native"))
+	out.fullscreen = bool(d.get("fullscreen", false))
 	out.updated = int(d.get("updated", 0))
 	return out
 
@@ -61,7 +67,13 @@ static func write_all(data: Dictionary) -> void:
 
 static func load_settings() -> Dictionary:
 	var d := load_all()
-	return {"volume": float(d.volume), "muted": bool(d.muted)}
+	return {
+		"volume": float(d.volume),
+		"muted": bool(d.muted),
+		"quality": str(d.get("quality", "high")),
+		"resolution": str(d.get("resolution", "native")),
+		"fullscreen": bool(d.get("fullscreen", false)),
+	}
 
 
 static func save_settings(volume: float, muted: bool) -> void:
