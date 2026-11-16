@@ -1167,16 +1167,18 @@ func _draw_entities() -> void:
 		if ProArt.has(pro, "myc_infected_beetle") and int(inf.x * 3.0 + inf.y) % 2 == 0:
 			ikey = "myc_infected_beetle"
 		if ProArt.has(pro, ikey):
-			ProArt.blit(self, pro, ikey, Iso.world_to_iso(inf.x, inf.y), 0.55 if not _use_2x else 0.28, Color(1, 1, 1, 0.75 + inf.grey * 0.2))
+			## Overgrown ruin mass — koncept 15-min silhouette.
+			ProArt.blit(self, pro, ikey, Iso.world_to_iso(inf.x, inf.y), 0.72 if not _use_2x else 0.36, Color(1, 1, 1, 0.82 + inf.grey * 0.18))
 		elif atlas.has("myc2_plodnice_dorostla"):
-			_blit("myc2_plodnice_dorostla", inf.x, inf.y, 0.5 if not _use_2x else 0.25, Color(0.55, 0.7, 0.45, 0.55 + inf.grey * 0.3))
+			_blit("myc2_plodnice_dorostla", inf.x, inf.y, 0.62 if not _use_2x else 0.31, Color(0.55, 0.7, 0.45, 0.6 + inf.grey * 0.3))
 	if world.skeleton != null:
 		var sk = world.skeleton
-		var alpha: float = 0.75 * (1.0 - float(sk.decay) * 0.5)
+		var alpha: float = 0.85 * (1.0 - float(sk.decay) * 0.45)
 		if ProArt.has(pro, "myc_skeleton"):
-			ProArt.blit(self, pro, "myc_skeleton", Iso.world_to_iso(sk.x, sk.y), 0.7 if not _use_2x else 0.35, Color(1, 1, 1, alpha))
+			## Tall ruin silhouette (koncept_pokrocila background wreck).
+			ProArt.blit(self, pro, "myc_skeleton", Iso.world_to_iso(sk.x, sk.y), 0.92 if not _use_2x else 0.46, Color(1.05, 1.02, 0.95, alpha))
 		elif atlas.has("myc2_kotva_dorostla"):
-			_blit("myc2_kotva_dorostla", sk.x, sk.y, 0.55 if not _use_2x else 0.28, Color(0.75, 0.7, 0.6, alpha))
+			_blit("myc2_kotva_dorostla", sk.x, sk.y, 0.7 if not _use_2x else 0.35, Color(0.75, 0.7, 0.6, alpha))
 	if world.giant_fruit != null:
 		var gf = world.giant_fruit
 		if ProArt.has(pro, "myc_giant_fruit"):
