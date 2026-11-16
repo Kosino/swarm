@@ -112,27 +112,31 @@ static func mount(hud: CanvasLayer, rod: String) -> Dictionary:
 	end_inner.add_theme_constant_override("separation", 10)
 	end_inner.alignment = BoxContainer.ALIGNMENT_CENTER
 
-	## pro_v3 wordmark — text title is fallback only.
+	## pro_v3 wordmark only — no redundant text title above the logo (Honza nit).
 	var end_logo := TextureRect.new()
 	end_logo.name = "EndLogo"
 	end_logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	end_logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	end_logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	end_logo.custom_minimum_size = Vector2(300, 104)
+	end_logo.custom_minimum_size = Vector2(320, 112)
 	end_logo.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	var logo_tex: Texture2D = load("res://art/pro_v3/menu/logo_swarm_sm.png") as Texture2D
+	## Prefer full wordmark; sm is fallback only.
+	var logo_tex: Texture2D = load("res://art/pro_v3/menu/logo_swarm.png") as Texture2D
 	if logo_tex == null:
-		logo_tex = load("res://art/pro_v3/menu/logo_swarm.png") as Texture2D
+		logo_tex = load("res://art/pro_v3/menu/logo_swarm_sm.png") as Texture2D
 	end_logo.texture = logo_tex
 	end_logo.visible = logo_tex != null
 	end_inner.add_child(end_logo)
 	out["end_logo"] = end_logo
 
-	var end_title := _make_label("EndTitle", "SWARM", tf, 30, COL_TITLE, true)
-	end_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	end_title.visible = logo_tex == null
-	end_inner.add_child(end_title)
-	out["end_title"] = end_title
+	## Text fallback only when the wordmark asset is missing — never stack with logo.
+	if logo_tex == null:
+		var end_title := _make_label("EndTitle", "SWARM", tf, 30, COL_TITLE, true)
+		end_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		end_inner.add_child(end_title)
+		out["end_title"] = end_title
+	else:
+		out["end_title"] = null
 
 	var end_sub := _make_label("EndSub", "Orbit", bf, 16, COL_BODY, false)
 	end_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -334,10 +338,13 @@ static func refresh_ending(nodes: Dictionary, rod: String, orbit_t: float, stats
 	if nodes.has("end_logo"):
 		var logo: TextureRect = nodes["end_logo"]
 		logo.visible = logo.texture != null
-		if nodes.has("end_title"):
-			(nodes["end_title"] as Label).visible = not logo.visible
-	if nodes.has("end_title"):
-		(nodes["end_title"] as Label).text = "SWARM"
+	## end_title exists only when logo texture was missing at mount.
+	if nodes.get("end_title", null) != null:
+		var title: Label = nodes["end_title"]
+		var logo_ok: bool = nodes.has("end_logo") and (nodes["end_logo"] as TextureRect).visible
+		title.visible = not logo_ok
+		if title.visible:
+			title.text = "SWARM"
 	if nodes.has("end_sub"):
 		(nodes["end_sub"] as Label).text = "Apis — orbit" if rod == "apis" else "Mycelium — orbit"
 	if not nodes.has("end_stats_grid"):

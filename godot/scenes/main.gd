@@ -1433,11 +1433,7 @@ func _draw_ending_planet() -> void:
 		var pa: float = 0.2 + 0.45 * abs(sin(world.time * 2.4)) * float(world.seed_capsule.pulse)
 		draw_line(tip, p, Color(0.85, 1.15, 0.55, pa * 0.4), 2.4, true)
 		draw_line(tip, p, Color(1.15, 1.4, 0.8, pa), 1.1, true)
-	## World-space SWARM logo beat (pro_v3) — fades in before the stats panel.
-	var logo_a: float = clampf((world.orbit_t - 0.55) / 1.6, 0.0, 1.0)
-	var logo_key := "logo" if ProArt.has(pro, "logo") else "swarm_logo"
-	if logo_a > 0.02 and ProArt.has(pro, logo_key):
-		ProArt.blit(self, pro, logo_key, cam + Vector2(0, -vp.y * 0.36 / z), 0.34 if logo_key == "logo" else 0.42, Color(1, 1, 1, logo_a))
+	## Logo lives only on EndPanel (Honza nit — no redundant world-space title).
 
 
 func _draw_box_fallback(wx: float, wy: float, half: float, col: Color) -> void:

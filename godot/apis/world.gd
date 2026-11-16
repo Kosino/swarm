@@ -99,6 +99,9 @@ var orbit_t: float = 0.0
 var dim_all: float = 0.0
 var worker_slow: float = 1.0
 var buildings_specialized: bool = false
+## Presentation-only (Rezavá zima) — does not gate medians.
+var rust_fall: float = 0.0 ## 1→0 flake burst after winter cluster
+var cluster_warm: float = 0.0 ## warm ball glow after feromone ring
 
 var idle_t: float = 0.0
 var show_ghost: bool = false
@@ -999,12 +1002,36 @@ func _trigger_winter() -> void:
 	dusk = maxf(0.0, dusk - 0.5)
 	core_pulse = 1.0
 	hive_pulse_sync = 1.0
+	## Rezavá zima wow: rust flakes fall as the warm cluster forms.
+	rust_fall = 1.0
+	cluster_warm = 1.0
 	## Cluster workers into a warm ball near hive.
 	for w in workers:
-		if _rnd() < 0.65:
+		if _rnd() < 0.78:
 			w.flower = -3
 			w.t = _rnd()
 	meadow_bloom = maxf(meadow_bloom, 0.6)
+
+
+func rust_intensity_at(q: int, r: int) -> float:
+	## 0..1 cold/rust reading for a chamber — spreads from rust_chamber with cold.
+	if rust_chamber == null or winter_time != null or cold <= 0.02:
+		return 0.0
+	var parts: PackedStringArray = str(rust_chamber).split(",")
+	if parts.size() < 2:
+		return 0.0
+	var rq: int = int(parts[0])
+	var rr: int = int(parts[1])
+	var dq: int = abs(q - rq)
+	var dr: int = abs(r - rr)
+	var ds: int = abs((-q - r) - (-rq - rr))
+	var dist: int = int(maxi(dq, maxi(dr, ds)))
+	## Epicenter full rust; neighbours grey with rising cold (scénář 10:00–11:05).
+	var reach: float = 1.0 + cold * 2.4
+	if float(dist) > reach:
+		return 0.0
+	var falloff: float = 1.0 - float(dist) / maxf(1.0, reach)
+	return clampf(cold * (0.55 + 0.45 * falloff) * (1.15 if dist == 0 else 0.85), 0.0, 1.0)
 
 
 func _trigger_brass() -> void:
@@ -1336,6 +1363,13 @@ func update(dt: float) -> void:
 		dusk = minf(1.0, dusk + dt / C.HINT_DUR)
 		cold = minf(1.0, cold + dt * 0.05)
 		worker_slow = lerpf(0.55, 0.35, cold)
+	## Presentation decay — rust flakes + lingering warm cluster ball.
+	if rust_fall > 0.0:
+		rust_fall = maxf(0.0, rust_fall - dt * 0.55)
+	if winter_time != null and brass_time == null:
+		cluster_warm = maxf(0.35, cluster_warm - dt * 0.02)
+	elif cluster_warm > 0.0:
+		cluster_warm = maxf(0.0, cluster_warm - dt * 0.12)
 	if brass_sheen > 0.0:
 		brass_sheen = maxf(0.4, brass_sheen - dt * 0.015)
 	if floor2 and not buildings_specialized and time >= C.WOW_FLOOR2 + 8.0:
