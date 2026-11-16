@@ -6,11 +6,14 @@ class_name MyceliumIsoAtlas
 
 const ROOT := "res://art/mycelium_iso_v2/"
 const JSON_PATH := ROOT + "godot_atlas.json"
-## Build 21: taller art_drop silhouettes (plodnice / kotva / zárodek) prefer loose sprites/.
+## Build 21+: taller art_drop silhouettes prefer loose sprites/ over atlas crops.
 const LOOSE_SILHOUETTES := [
 	"myc2_plodnice_rozestavena", "myc2_plodnice_dorostla", "myc2_plodnice_zariva",
 	"myc2_kotva_rozestavena", "myc2_kotva_dorostla", "myc2_kotva_zariva",
 	"myc2_zarodek_rozestavena", "myc2_zarodek_dorostla", "myc2_zarodek_zariva",
+	## Mycelium units — spore crawlers (dělník ± nesení, 4 dirs).
+	"myc2_delnik_NW", "myc2_delnik_NE", "myc2_delnik_SW", "myc2_delnik_SE",
+	"myc2_delnik_neseni_NW", "myc2_delnik_neseni_NE", "myc2_delnik_neseni_SW", "myc2_delnik_neseni_SE",
 ]
 
 
@@ -31,13 +34,21 @@ static func _apply_loose_silhouettes(out: Dictionary, use_2x: bool) -> void:
 		if tex == null:
 			continue
 		var sz: Vector2 = tex.get_size()
+		var prev_h: float = 0.0
+		if out.has(logical) and out[logical].has("texture") and out[logical].texture != null:
+			prev_h = float(out[logical].texture.get_size().y)
 		var pivot := Vector2(sz.x * 0.5, sz.y)
+		var foot_pad: float = 6.0 * (2.0 if use_2x else 1.0)
 		if out.has(logical) and out[logical].has("pivot"):
-			## Keep atlas pivot X when available; drop foot to sprite bottom for taller crop.
+			## Keep atlas pivot X; taller crops drop foot to bottom, same-height units keep atlas foot.
 			pivot.x = float(out[logical].pivot.x)
 			if use_2x and pivot.x < sz.x * 0.25:
 				pivot.x = sz.x * 0.5
-		var offset := Vector2(-pivot.x, -pivot.y + 6.0 * (2.0 if use_2x else 1.0))
+			if prev_h > 0.0 and sz.y <= prev_h + 1.0:
+				pivot.y = float(out[logical].pivot.y)
+				if out[logical].has("offset"):
+					foot_pad = float(out[logical].offset.y) + pivot.y
+		var offset := Vector2(-pivot.x, -pivot.y + foot_pad)
 		out[logical] = {
 			"texture": tex,
 			"pivot": pivot,
