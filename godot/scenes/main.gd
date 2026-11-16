@@ -124,8 +124,13 @@ func _ready() -> void:
 		var Bot = preload("res://tools/capture_bot.gd")
 		Bot.advance_mycelium(world, capture_at)
 		demo_on = false
-		## Snap presentational zoom for deterministic captures.
-		world.cam_zoom = world.cam_zoom_target
+		## Pull out later so soil-stage growth (hola→prorostla→ziva) is readable.
+		if capture_at >= 600.0:
+			world.cam_zoom = minf(world.cam_zoom_target, C.CAM_ZOOM_OUT * 0.95)
+		elif capture_at >= 300.0:
+			world.cam_zoom = lerpf(C.CAM_ZOOM_IN, C.CAM_ZOOM_OUT, 0.4)
+		else:
+			world.cam_zoom = world.cam_zoom_target
 	SwarmAudio.set_ambient("mycelium")
 	_atm = Atm.apply(self, "mycelium", camera, hud)
 	hud.visible = demo_on
@@ -138,6 +143,7 @@ func _ready() -> void:
 		await get_tree().process_frame
 		await get_tree().process_frame
 		await get_tree().process_frame
+		print("capture_time_verify myc t=", world.time, " segs=", world.segs.size(), " tips=", world.tips.size(), " bright=", world.network_bright, " reach=", _visual_reach())
 		var img: Image = get_viewport().get_texture().get_image()
 		if img:
 			img.save_png(capture_out)
@@ -312,12 +318,15 @@ func _nest() -> Vector2:
 
 
 func _visual_reach() -> float:
-	var base: float = 90.0 + float(world.segs.size()) * 0.11 + world.time * 0.22
+	## Stronger time/seg growth so soil stages read clearly from 0:30 → 15:00.
+	var base: float = 70.0 + float(world.segs.size()) * 0.14 + world.time * 0.32
 	if world.big_anchored:
-		base += 80.0
+		base += 90.0
 	if world.join_time != null:
-		base += 60.0
-	return clampf(base, 90.0, 520.0)
+		base += 70.0
+	if world.network_bright > 0.4:
+		base += 40.0
+	return clampf(base, 70.0, 560.0)
 
 
 func _terrain_stage(wx: float, wy: float) -> String:
@@ -398,19 +407,20 @@ func _draw_tex_cell(tex: Texture2D, center: Vector2, cell: float, rot: float, mo
 
 
 func _draw_ground_base() -> void:
-	## Continuous iso underlay — never tile zarici full-screen (baked hyphae/spores → hatch carpet).
+	## Soil-stage growth: hola → prorostla → sparse zarici wash (readable 0:30→15:00).
 	var c := Iso.world_to_iso(float(C.W) * 0.5, float(C.H) * 0.5)
 	var hw: float = float(C.W) * 1.55
 	var hh: float = float(C.H) * 1.05
 	draw_colored_polygon(_diamond_at(c, hw * 1.55, hh * 1.55), Color(0.08, 0.1, 0.055, 1.0))
 	var t_hola: Texture2D = ProArt.tex(pro, "myc_tex_puda_hola")
 	var t_pro: Texture2D = ProArt.tex(pro, "myc_tex_puda_prorostla")
-	## Never tile zarici — baked hyphae/spheres read as green hatch patches.
+	var t_zar: Texture2D = ProArt.tex(pro, "myc_tex_puda_zarici")
 	if t_hola != null:
 		var reach: float = _visual_reach()
 		var fill := Rect2(c.x - 2200.0, c.y - 1400.0, 4400.0, 2800.0)
+		## Early = bare soil; mid = prorostla; late = soft zarici only near nest.
 		var base: Texture2D = t_hola
-		if reach > 180.0 and t_pro != null:
+		if reach > 140.0 and t_pro != null:
 			base = t_pro
 		draw_texture_rect(base, fill, true)
 		var cell: float = 480.0
@@ -419,16 +429,22 @@ func _draw_ground_base() -> void:
 		var y0: float = c.y - 1400.0
 		var nx: int = int(ceil(4400.0 / step)) + 1
 		var ny: int = int(ceil(2800.0 / step)) + 1
+		var nest_iso := Iso.world_to_iso(_nest().x, _nest().y)
 		for iy in range(ny):
 			for ix in range(nx):
 				var cx: float = x0 + float(ix) * step + cell * 0.5
 				var cy: float = y0 + float(iy) * step + cell * 0.5
 				var h0: float = _hash2(ix, iy)
 				var rot: float = float(int(h0 * 4.0) % 4) * PI * 0.5
-				if t_pro != null and base != t_pro and h0 > 0.35:
-					_draw_tex_cell(t_pro, Vector2(cx, cy), cell, rot, Color(1, 1, 1, 0.22 + 0.1 * h0))
-				if t_hola != null and base != t_hola and _hash2(ix + 3, iy + 5) > 0.55:
-					_draw_tex_cell(t_hola, Vector2(cx, cy), cell * 0.9, rot + PI * 0.5, Color(1, 1, 1, 0.18))
+				var d_iso: float = Vector2(cx, cy).distance_to(nest_iso)
+				if t_pro != null and base == t_hola and reach > 100.0 and h0 > 0.4:
+					_draw_tex_cell(t_pro, Vector2(cx, cy), cell, rot, Color(1, 1, 1, 0.2 + 0.12 * h0))
+				if t_hola != null and base != t_hola and _hash2(ix + 3, iy + 5) > 0.6:
+					_draw_tex_cell(t_hola, Vector2(cx, cy), cell * 0.9, rot + PI * 0.5, Color(1, 1, 1, 0.14))
+				## Late-game living soil wash — very soft, rotated, near nest only (no hatch carpet).
+				if t_zar != null and reach > 280.0 and d_iso < 380.0 and world.network_bright > 0.2 and h0 > 0.72:
+					var a: float = 0.05 + 0.07 * world.network_bright * (1.0 - clampf(d_iso / 380.0, 0.0, 1.0))
+					_draw_tex_cell(t_zar, Vector2(cx, cy), cell * 0.7, rot + PI, Color(1, 1, 1, a))
 	else:
 		draw_colored_polygon(_diamond_at(c, hw, hh), Color(0.14, 0.18, 0.1, 1.0))
 	_draw_ground_decals()
@@ -455,24 +471,26 @@ func _draw_soil() -> void:
 	var has_fill: bool = ProArt.has(pro, "myc_tex_puda_hola")
 	for ty in range(rows):
 		for tx in range(cols):
-			## Sparse soil sprites only — skip ziva diamonds that read as hatch patches.
-			if has_fill and ((tx * 5 + ty * 11) % 8) != 0:
+			## Sparse soil stage sprites — keep pusta/prorostla/ziva readable over time (no prorust hatch).
+			if has_fill and ((tx * 5 + ty * 11) % 5) != 0:
 				continue
 			var wx: float = (float(tx) + 0.5) * tile
 			var wy: float = (float(ty) + 0.5) * tile
 			var idx: int = int(world.soil_tiles[ty * cols + tx]) if ty * cols + tx < world.soil_tiles.size() else 0
 			var variant: String = ["a", "b", "c"][clampi(idx, 0, 2)]
 			var stage: String = _terrain_stage(wx, wy)
-			if stage == "ziva":
-				stage = "prorostla"
 			var n := "myc2_puda_%s_%s" % [stage, variant]
 			if atlas.has(n):
-				var a: float = 0.16 if has_fill else 1.0
+				var a: float = 0.18 if has_fill else 1.0
+				if stage == "prorostla":
+					a = 0.28 if has_fill else 1.0
+				elif stage == "ziva":
+					a = 0.38 if has_fill else 1.0
 				_blit(n, wx, wy, sc, Color(1, 1, 1, a))
 			elif not has_fill:
 				var iso := Iso.world_to_iso(wx, wy)
 				draw_colored_polygon(_diamond_at(iso, tile * 0.56, tile * 0.28), Color(0.16 + 0.03 * idx, 0.2 + 0.02 * idx, 0.11, 1.0))
-			## Build 13: no myc2_overlay_prorust — removes green cross-hatch grid patches.
+			## No myc2_overlay_prorust — hatch patches stay gone.
 
 
 func _draw_ground_decals() -> void:
@@ -522,102 +540,164 @@ func _hyfa_dir(dx: float, dy: float) -> String:
 	return "NW"
 
 
-func _draw_hyphae() -> void:
-	## Organic filaments: glow at core, thin tips — avoid neon hatch carpet of overlapping tenka.
-	var bright: float = 1.0 + world.network_bright * 0.35
-	var nest := _nest()
-	var drawn := 0
-	var max_draw := 900
-	var i := 0
-	var seg_n: int = world.segs.size()
-	for s in world.segs:
-		i += 1
-		var th: int = int(s.th)
-		## Skip most tenka — dense parallel thin sprites read as green cross-hatch patches.
-		var stride := 1
-		if th <= 0:
-			stride = 4
-		elif th == 1:
-			stride = 2
-		if (i % stride) != 0:
-			continue
-		if drawn >= max_draw:
-			break
-		var dx: float = s.x2 - s.x1
-		var dy: float = s.y2 - s.y1
-		var dir := _hyfa_dir(dx, dy)
-		var mx: float = (s.x1 + s.x2) * 0.5
-		var my: float = (s.y1 + s.y2) * 0.5
-		var dist_n: float = nest.distance_to(Vector2(mx, my))
-		var near_core: bool = dist_n < 180.0
-		## Prefer soft glowing trunks; periphery almost exclusively tip-thin.
-		var draw_th: int = th
-		if dist_n > 220.0:
-			draw_th = 0
-		elif near_core:
-			draw_th = maxi(th, 2 if th >= 1 else 1)
-		var thn := _th_name(draw_th)
-		## Prefer silna/stredni near core so the network reads as glowing cords, not hatch mesh.
-		if near_core and draw_th >= 1:
-			thn = "silna" if draw_th >= 2 else "stredni"
-		var name := "myc2_hyfa_%s_%s" % [thn, dir]
-		var a_iso := Iso.world_to_iso(s.x1, s.y1)
-		var b_iso := Iso.world_to_iso(s.x2, s.y2)
-		var fuse: float = 0.0
-		if s is Dictionary and s.has("fuseGlow"):
-			fuse = float(s.fuseGlow)
-		var alpha: float = (0.38 + 0.18 * float(mini(3, draw_th))) * minf(1.05, bright)
-		if near_core:
-			alpha = minf(0.92, alpha + 0.2 + fuse * 0.12)
-		var col := Color(1.1 + (0.25 if near_core else 0.0), 1.2 + (0.3 if near_core else 0.05), 0.85, alpha)
-		if atlas.has(name):
-			var sc := 0.28 + 0.14 * float(mini(3, maxi(draw_th, 1 if near_core else 0)))
-			if near_core:
-				sc += 0.1
-			if _use_2x:
-				sc *= 0.5
-			## Sprite-only — core glow via brighter silna modulate (no SE/SW line underlay hatch).
-			if near_core and draw_th >= 2:
-				col = Color(1.55, 1.85, 0.7, minf(0.98, alpha + 0.1 + fuse * 0.12))
-				sc *= 1.18
-			elif near_core:
-				col = Color(1.3, 1.5, 0.7, minf(0.9, alpha + 0.05))
-			_blit(name, mx, my, sc, col)
-			drawn += 1
+func _catmull(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t: float) -> Vector2:
+	var t2: float = t * t
+	var t3: float = t2 * t
+	return 0.5 * (
+		(2.0 * p1)
+		+ (-p0 + p2) * t
+		+ (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+		+ (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
+	)
+
+
+func _resample_catmull(pts: Array, ths: Array, step: float) -> Dictionary:
+	## pts/ths are root→tip world points. Returns iso pts + half-widths.
+	var out_pts := PackedVector2Array()
+	var out_hw := PackedFloat32Array()
+	if pts.size() < 2:
+		return {"pts": out_pts, "hw": out_hw}
+	var n: int = pts.size()
+	## Approximate total length for tip taper (last ~60px).
+	var total: float = 0.0
+	for i in range(1, n):
+		total += Vector2(pts[i]).distance_to(Vector2(pts[i - 1]))
+	var along: float = 0.0
+	for i in range(n - 1):
+		var p0: Vector2 = pts[maxi(0, i - 1)]
+		var p1: Vector2 = pts[i]
+		var p2: Vector2 = pts[i + 1]
+		var p3: Vector2 = pts[mini(n - 1, i + 2)]
+		var seg_len: float = p1.distance_to(p2)
+		var samples: int = maxi(1, int(ceil(seg_len / maxf(step, 4.0))))
+		var th_a: float = float(ths[mini(i, ths.size() - 1)]) if ths.size() > 0 else 0.0
+		var th_b: float = float(ths[mini(i + 1, ths.size() - 1)]) if ths.size() > 0 else th_a
+		for s in range(samples):
+			var u: float = float(s) / float(samples)
+			var p: Vector2 = _catmull(p0, p1, p2, p3, u)
+			## Very slight organic wander — keep ribbon smooth (no jagged hatch).
+			var nx: float = sin((along + u * seg_len) * 0.04 + float(i) * 0.9) * 0.9
+			var ny: float = cos((along + u * seg_len) * 0.035 + float(i) * 0.7) * 0.7
+			p += Vector2(nx, ny)
+			var th_u: float = lerpf(th_a, th_b, u)
+			var dist_left: float = total - (along + u * seg_len)
+			## Width by traffic/thickness; taper last ~60px tendril.
+			var hw: float = 1.35 + th_u * 1.85 + world.network_bright * 0.4
+			if dist_left < 60.0:
+				hw *= clampf(dist_left / 60.0, 0.12, 1.0)
+			out_pts.append(Iso.world_to_iso(p.x, p.y))
+			out_hw.append(hw)
+		along += seg_len
+	## Tip endpoint.
+	var tip: Vector2 = pts[n - 1]
+	out_pts.append(Iso.world_to_iso(tip.x, tip.y))
+	out_hw.append(0.55)
+	return {"pts": out_pts, "hw": out_hw}
+
+
+func _draw_ribbon(iso_pts: PackedVector2Array, half_w: PackedFloat32Array, col: Color, width_mul: float = 1.0) -> void:
+	if iso_pts.size() < 2 or half_w.size() != iso_pts.size():
+		return
+	var left := PackedVector2Array()
+	var right := PackedVector2Array()
+	for i in range(iso_pts.size()):
+		var tang: Vector2
+		if i == 0:
+			tang = (iso_pts[1] - iso_pts[0])
+		elif i == iso_pts.size() - 1:
+			tang = (iso_pts[i] - iso_pts[i - 1])
 		else:
-			## Fallback only on atlas miss — keep hairline, never a neon carpet.
-			var w: float = 0.55 + float(mini(3, draw_th)) * 0.25
-			draw_line(a_iso, b_iso, Color(0.55, 0.8, 0.5, 0.2 * bright), w, true)
-			drawn += 1
-	## Sparse branch / node accents.
-	if atlas.has("myc2_hyfa_uzel_stredni"):
+			tang = (iso_pts[i + 1] - iso_pts[i - 1])
+		if tang.length_squared() < 0.0001:
+			tang = Vector2.RIGHT
+		else:
+			tang = tang.normalized()
+		var nrm := Vector2(-tang.y, tang.x)
+		var hw: float = half_w[i] * width_mul
+		left.append(iso_pts[i] + nrm * hw)
+		right.append(iso_pts[i] - nrm * hw)
+	var poly := PackedVector2Array()
+	for p in left:
+		poly.append(p)
+	for ri in range(right.size() - 1, -1, -1):
+		poly.append(right[ri])
+	if poly.size() >= 3:
+		draw_colored_polygon(poly, col)
+
+
+func _draw_hyphae() -> void:
+	## One smooth curved strip per tip-chain — Catmull-Rom + noise, no hatch/parallel sprites.
+	var bright: float = 1.0 + world.network_bright * 0.4
+	var hyfa_tex: Texture2D = null
+	if atlas.has("myc2_hyfa_silna_SE"):
+		hyfa_tex = atlas["myc2_hyfa_silna_SE"].texture
+	elif atlas.has("myc2_hyfa_stredni_SE"):
+		hyfa_tex = atlas["myc2_hyfa_stredni_SE"].texture
+	var drawn_chains := 0
+	var max_chains := 48
+	## Prefer thicker tips first so trunks read clearly.
+	var tip_order: Array = []
+	for ti in range(world.tips.size()):
+		var tip0 = world.tips[ti]
+		var th0: int = 0
+		var s0: int = int(tip0.seg)
+		if s0 >= 0 and s0 < world.segs.size():
+			th0 = int(world.segs[s0].th)
+		tip_order.append({"i": ti, "th": th0})
+	tip_order.sort_custom(func(a, b): return int(a.th) > int(b.th))
+	for item in tip_order:
+		if drawn_chains >= max_chains:
+			break
+		var tip = world.tips[int(item.i)]
+		var pts: Array = []
+		var ths: Array = []
+		## Walk tip → root via parent pointers, then reverse to root→tip.
+		pts.append(Vector2(float(tip.x), float(tip.y)))
+		var si: int = int(tip.seg)
+		var guard := 0
+		while si >= 0 and si < world.segs.size() and guard < 4000:
+			guard += 1
+			var s: Dictionary = world.segs[si]
+			pts.append(Vector2(float(s.x1), float(s.y1)))
+			ths.append(int(s.th))
+			si = int(s.p)
+		if pts.size() < 2:
+			continue
+		pts.reverse()
+		ths.reverse()
+		## Ensure ths aligned to segments between pts.
+		while ths.size() < pts.size() - 1:
+			ths.append(0)
+		var sampled: Dictionary = _resample_catmull(pts, ths, 6.0)
+		var iso_pts: PackedVector2Array = sampled.pts
+		var half_w: PackedFloat32Array = sampled.hw
+		if iso_pts.size() < 2:
+			continue
+		## Additive yellow-green glow stack — soft outer, bright core.
+		_draw_ribbon(iso_pts, half_w, Color(0.45, 0.95, 0.4, 0.10 * bright), 2.6)
+		_draw_ribbon(iso_pts, half_w, Color(0.75, 1.15, 0.45, 0.18 * bright), 1.55)
+		_draw_ribbon(iso_pts, half_w, Color(1.15, 1.45, 0.55, 0.42 * bright), 1.0)
+		_draw_ribbon(iso_pts, half_w, Color(1.55, 1.85, 0.7, 0.55 * bright), 0.38)
+		## Optional textured accent using iso_v2 hyfa sprite as ribbon UV wash.
+		if hyfa_tex != null and iso_pts.size() >= 2:
+			var mid_i: int = iso_pts.size() / 2
+			var mid: Vector2 = iso_pts[mid_i]
+			var hw_m: float = half_w[mid_i] * 2.2
+			var a: float = 0.16 + 0.1 * world.network_bright
+			draw_texture_rect(hyfa_tex, Rect2(mid - Vector2(hw_m * 2.0, hw_m), Vector2(hw_m * 4.0, hw_m * 2.0)), false, Color(1.2, 1.4, 0.7, a))
+		drawn_chains += 1
+	## Sparse organic node accents only (not hatch).
+	if ProArt.has(pro, "myc_decal_hyfa_chomac"):
 		var shown := 0
 		var j := 0
 		for s2 in world.segs:
 			j += 1
-			if int(s2.th) < 2 or (j % 4) != 0:
+			if int(s2.th) < 2 or (j % 7) != 0:
 				continue
-			var thn2 := _th_name(int(s2.th))
-			var uname := "myc2_hyfa_uzel_%s" % thn2
-			if atlas.has(uname):
-				_blit(uname, s2.x1, s2.y1, 0.28 if not _use_2x else 0.14, Color(1.35, 1.55, 1.15, 0.55 + world.network_bright * 0.2))
-				shown += 1
-				if shown > 28:
-					break
-			if atlas.has("myc2_hyfa_vetveni_%s" % thn2) and shown % 3 == 0:
-				_blit("myc2_hyfa_vetveni_%s" % thn2, s2.x2, s2.y2, 0.22 if not _use_2x else 0.11, Color(1.25, 1.45, 1.1, 0.45))
-			if ProArt.has(pro, "myc_decal_hyfa_chomac") and shown % 4 == 0:
-				ProArt.blit(self, pro, "myc_decal_hyfa_chomac", Iso.world_to_iso(s2.x1, s2.y1), 0.3 if not _use_2x else 0.15, Color(1.15, 1.3, 1.05, 0.45))
-	for t in world.tips:
-		var dir2 := _hyfa_dir(cos(t.a), sin(t.a))
-		## Tips always thin — never escalate with network_bright.
-		var tip_name := "myc2_hyfa_tip_tenka_%s" % dir2
-		if not atlas.has(tip_name):
-			tip_name = "myc2_hyfa_tip"
-		if atlas.has(tip_name):
-			_blit(tip_name, t.x, t.y, 0.22 if not _use_2x else 0.11, Color(1.15, 1.3, 1.0, 0.42 * bright))
-		else:
-			draw_circle(Iso.world_to_iso(t.x, t.y), 1.2, Color(0.55, 0.9, 0.65, 0.4))
+			ProArt.blit(self, pro, "myc_decal_hyfa_chomac", Iso.world_to_iso(s2.x1, s2.y1), 0.26 if not _use_2x else 0.13, Color(1.1, 1.35, 0.85, 0.35))
+			shown += 1
+			if shown > 18:
+				break
 
 
 func _kotva_stage(p: Dictionary) -> String:
@@ -728,13 +808,13 @@ func _draw_entities() -> void:
 		var name := ("myc2_delnik_neseni_%s" if carrying else "myc2_delnik_%s") % dir
 		if not atlas.has(name):
 			name = "myc2_delnik_SE"
-		var wsc: float = 0.36 if not _use_2x else 0.18
-		_draw_soft_shadow(px, py, 2.5, 0.14)
+		var wsc: float = 0.32 if not _use_2x else 0.16
+		_draw_soft_shadow(px, py, 2.0, 0.1)
 		if atlas.has(name):
-			## Translucent yellow-green spore look (modulate overcomes dark delnik base).
-			_blit(name, px, py, wsc, Color(1.55, 1.85, 0.55, 0.62))
+			## Subtle translucent yellow-green spores along strips.
+			_blit(name, px, py, wsc, Color(1.4, 1.7, 0.5, 0.48))
 		else:
-			draw_circle(Iso.world_to_iso(px, py), 1.4, Color(0.85, 1.0, 0.35, 0.55))
+			draw_circle(Iso.world_to_iso(px, py), 1.2, Color(0.85, 1.0, 0.35, 0.45))
 		drawn_workers.append(Vector2(px, py))
 
 	if world.stroke_active and world.stroke.size() > 1:

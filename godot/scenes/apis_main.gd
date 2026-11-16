@@ -92,7 +92,13 @@ func _ready() -> void:
 		var Bot = preload("res://tools/capture_bot.gd")
 		Bot.advance_apis(world, capture_at)
 		demo_on = false
-		world.cam_zoom = world.cam_zoom_target
+		## Pull out at later beats so comb rings / trails / meadow živá / dusk read.
+		if capture_at >= 600.0:
+			world.cam_zoom = minf(world.cam_zoom_target, C.CAM_ZOOM_OUT * 0.95)
+		elif capture_at >= 300.0:
+			world.cam_zoom = lerpf(C.CAM_ZOOM_IN, C.CAM_ZOOM_OUT, 0.35)
+		else:
+			world.cam_zoom = world.cam_zoom_target
 	SwarmAudio.set_ambient("apis")
 	_atm = Atm.apply(self, "apis", camera, hud)
 	hud.visible = demo_on
@@ -105,6 +111,7 @@ func _ready() -> void:
 		await get_tree().process_frame
 		await get_tree().process_frame
 		await get_tree().process_frame
+		print("capture_time_verify apis t=", world.time, " chambers=", world.chambers.size(), " trails=", world.trails.size(), " dusk=", world.dusk, " bloom=", world.meadow_bloom, " floor2=", world.floor2)
 		var img: Image = get_viewport().get_texture().get_image()
 		if img:
 			img.save_png(capture_out)
@@ -178,7 +185,9 @@ func _process(dt: float) -> void:
 	var h := _hive()
 	var h_iso := Iso.world_to_iso(h.x, h.y)
 	Atm.sync_light(_atm, h_iso, 0.4 + world.core_pulse * 0.28 + world.brass_sheen * 0.2)
-	Atm.set_dusk(_atm, world.dusk)
+	## Presentational dusk ramp from ~10:00 even if hint beat is late — readable 11:00 dusk.
+	var dusk_v: float = maxf(world.dusk, clampf((world.time - 560.0) / 140.0, 0.0, 1.0) * 0.85)
+	Atm.set_dusk(_atm, dusk_v)
 	if _atm.has("dust"):
 		(_atm["dust"] as Node2D).global_position = h_iso
 	_refresh_hud()
@@ -276,12 +285,17 @@ func _hive() -> Vector2:
 
 
 func _visual_reach() -> float:
-	var base: float = 100.0 + float(world.chambers.size()) * 6.5 + float(world.trails.size()) * 28.0 + world.time * 0.2
+	## Time-weighted so meadow živá spread reads clearly 5:00 → 11:00 → 15:00.
+	var base: float = 90.0 + float(world.chambers.size()) * 7.0 + float(world.trails.size()) * 32.0 + world.time * 0.28
 	if world.meadow2 != null:
-		base += 70.0
+		base += 80.0
 	if world.second_hive != null:
-		base += 90.0
-	return clampf(base, 100.0, 540.0)
+		base += 100.0
+	if world.meadow_bloom > 0.4:
+		base += 50.0
+	if world.dusk > 0.3:
+		base += 40.0
+	return clampf(base, 90.0, 580.0)
 
 
 func _terrain_stage(wx: float, wy: float) -> String:
@@ -479,8 +493,9 @@ func _draw_meadow() -> void:
 	var has_fill: bool = ProArt.has(pro, "apis_tex_louka_divoka")
 	for ty in range(rows):
 		for tx in range(cols):
-			## Very sparse meadow sprites over noise-blended fill — avoid reinforcing stripe lattice.
-			if has_fill and ((tx * 5 + ty * 7) % 7) != 0:
+			## Very sparse meadow sprites — diamond atlas tiles must not form a pale grid.
+			var sparse: int = 6 if _visual_reach() > 300.0 else 9
+			if has_fill and ((tx * 5 + ty * 7) % sparse) != 0:
 				continue
 			var wx: float = (float(tx) + 0.5) * tile
 			var wy: float = (float(ty) + 0.5) * tile
@@ -489,10 +504,12 @@ func _draw_meadow() -> void:
 			var stage: String = _terrain_stage(wx, wy)
 			var n := "apis2_louka_%s_%s" % [stage, variant]
 			if atlas.has(n):
-				var a: float = 0.14 if has_fill else 1.0
-				if stage == "ziva":
+				var a: float = 0.08 if has_fill else 1.0
+				if stage == "osazena":
+					a = 0.14 if has_fill else 1.0
+				elif stage == "ziva":
 					a = 0.22 if has_fill else 1.0
-				_blit(n, wx, wy, sc, Color(1, 1, 1, a))
+				_blit(n, wx, wy, sc * 0.85, Color(1, 1, 1, a))
 			elif not has_fill:
 				var iso := Iso.world_to_iso(wx, wy)
 				var shade := 0.42 - 0.03 * float(idx) - world.dusk * 0.08
@@ -501,7 +518,7 @@ func _draw_meadow() -> void:
 					Color(shade, shade * 0.92, shade * 0.7, 1.0)
 				)
 			if stage == "ziva" and atlas.has("apis2_overlay_kvet"):
-				_blit("apis2_overlay_kvet", wx, wy, sc * 0.9, Color(1, 1, 1, 0.14 + world.meadow_bloom * 0.2))
+				_blit("apis2_overlay_kvet", wx, wy, sc * 0.95, Color(1, 1, 1, 0.22 + world.meadow_bloom * 0.35))
 	if world.meadow2 != null:
 		var m2 = world.meadow2
 		if atlas.has("apis2_overlay_kvet"):

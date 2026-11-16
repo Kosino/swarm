@@ -35,18 +35,32 @@ static func advance_mycelium(world: MyceliumWorld, target: float) -> void:
 		world.update(minf(dt, target - world.time))
 
 
+static func _apis_max_trails(target: float) -> int:
+	## Gate trails so 5:00 vs 11:00 growth stays readable.
+	if target < 180.0:
+		return 0
+	if target < 360.0:
+		return 1
+	if target < 540.0:
+		return 2
+	if target < 660.0:
+		return 3
+	return 4
+
+
 static func advance_apis(world: ApisWorld, target: float) -> void:
 	var dt := 1.0 / 12.0
 	var guard := 0
+	var max_trails: int = _apis_max_trails(target)
 	while world.time < target - 0.02 and guard < 250000:
 		guard += 1
 		if not world.planted:
 			world.pointer_down(world.cx, world.cy)
 			world.pointer_up()
-		elif world.flowers.size() > 0 and world.trails.size() < 4:
-			## Prefer tree once, then flowers — ensures hive→flower/tree pheromone streams in captures.
+		elif world.flowers.size() > 0 and world.trails.size() < max_trails:
+			## Early: nearest flower. Late (≥10:00): prefer tree once for highway/readability.
 			var f = null
-			if world.trails.size() == 0:
+			if target >= 600.0 and world.trails.size() == 0:
 				for cand in world.flowers:
 					if cand.get("tree", false):
 						f = cand
