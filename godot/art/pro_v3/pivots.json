@@ -246,22 +246,22 @@
     "file": "sprites/apis_pro_kralovna.png",
     "file_2x": "sprites/apis_pro_kralovna_2x.png",
     "size": [
-      130,
-      124
+      150,
+      96
     ],
     "pivot": [
-      65.0,
-      120.0
+      75.0,
+      94.0
     ],
     "size_2x": [
-      260,
-      248
+      300,
+      192
     ],
     "pivot_2x": [
-      130.0,
-      240.0
+      150.0,
+      188.0
     ],
-    "notes": "královna, iso 3/4 shora (opravná iterace), dlouhý pruhovaný zadeček, větší než dělnice"
+    "notes": "královna, iso 2:1 top-down-ish (Build 14 transform from pro_v3), SE diagonal, dlouhý pruhovaný zadeček"
   },
   "apis_pro_kukla": {
     "file": "sprites/apis_pro_kukla.png",

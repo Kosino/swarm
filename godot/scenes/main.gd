@@ -741,6 +741,8 @@ func _draw_ribbon(iso_pts: PackedVector2Array, half_w: PackedFloat32Array, col: 
 		return
 	var left := PackedVector2Array()
 	var right := PackedVector2Array()
+	var kept := 0
+	var last_iso := Vector2.ZERO
 	for i in range(iso_pts.size()):
 		var tang: Vector2
 		if i == 0:
@@ -753,10 +755,17 @@ func _draw_ribbon(iso_pts: PackedVector2Array, half_w: PackedFloat32Array, col: 
 			tang = Vector2.RIGHT
 		else:
 			tang = tang.normalized()
+		## Skip near-duplicate samples that collapse the ribbon into a zero-area poly.
+		if kept > 0 and iso_pts[i].distance_squared_to(last_iso) < 0.36:
+			continue
 		var nrm := Vector2(-tang.y, tang.x)
 		var hw: float = half_w[i] * width_mul
 		left.append(iso_pts[i] + nrm * hw)
 		right.append(iso_pts[i] - nrm * hw)
+		last_iso = iso_pts[i]
+		kept += 1
+	if kept < 2:
+		return
 	var poly := PackedVector2Array()
 	for p in left:
 		poly.append(p)
@@ -766,37 +775,79 @@ func _draw_ribbon(iso_pts: PackedVector2Array, half_w: PackedFloat32Array, col: 
 		draw_colored_polygon(poly, col)
 
 
+func _hypha_chain_len(pts: Array) -> float:
+	var total: float = 0.0
+	for i in range(1, pts.size()):
+		total += Vector2(pts[i]).distance_to(Vector2(pts[i - 1]))
+	return total
+
+
+func _hypha_mean_th(ths: Array) -> float:
+	if ths.is_empty():
+		return 0.0
+	var s: float = 0.0
+	for t in ths:
+		s += float(t)
+	return s / float(ths.size())
+
+
 func _draw_hyphae() -> void:
-	## One smooth curved strip per tip-chain — Catmull-Rom + noise, no hatch/parallel sprites.
-	## Build #18: quality-scaled ribbon passes + view cull + coarser resample.
-	var bright: float = 1.0 + world.network_bright * 0.4
+	## Build 14 retune: ~8–15 arteries (6–14px), lime core #e8f25a + olive glow #6f8a2a.
+	## Secondaries thinner @ ~40% opacity. SwarmGfx quality/view cull preserved (Build 18).
+	var col_olive := Color(0.435, 0.541, 0.165) ## #6f8a2a
+	var col_lime := Color(0.910, 0.949, 0.353) ## #e8f25a
+	var bright: float = 1.0 + world.network_bright * 0.15
 	var hyfa_tex: Texture2D = null
 	if SwarmGfx.hyfa_tex_accent():
 		if atlas.has("myc2_hyfa_silna_SE"):
 			hyfa_tex = atlas["myc2_hyfa_silna_SE"].texture
 		elif atlas.has("myc2_hyfa_stredni_SE"):
 			hyfa_tex = atlas["myc2_hyfa_stredni_SE"].texture
-	var drawn_chains := 0
-	var max_chains := SwarmGfx.max_hypha_chains()
 	var passes: int = SwarmGfx.ribbon_passes()
 	var step_r: float = SwarmGfx.ribbon_resample_step()
-	## Prefer thicker tips first so trunks read clearly.
+	## Art budget: 8–15 main arteries + sparse secondaries (never full spaghetti).
+	var max_arteries: int = 13
+	var max_secondary: int = 6
+	if SwarmGfx.q_level() >= 1:
+		max_arteries = 11
+		max_secondary = 4
+	if SwarmGfx.q_level() >= 2:
+		max_arteries = 8
+		max_secondary = 3
+	max_arteries = mini(max_arteries, SwarmGfx.max_hypha_chains())
+	## Rank tips by max ancestral thickness so trunks win over fresh tip th=0.
 	var tip_order: Array = []
 	for ti in range(world.tips.size()):
 		var tip0 = world.tips[ti]
-		var th0: int = 0
+		var max_th: int = 0
+		var sum_th: int = 0
+		var n_th: int = 0
 		var s0: int = int(tip0.seg)
-		if s0 >= 0 and s0 < world.segs.size():
-			th0 = int(world.segs[s0].th)
-		tip_order.append({"i": ti, "th": th0})
-	tip_order.sort_custom(func(a, b): return int(a.th) > int(b.th))
+		var g0 := 0
+		while s0 >= 0 and s0 < world.segs.size() and g0 < 4000:
+			g0 += 1
+			var thv: int = int(world.segs[s0].th)
+			max_th = maxi(max_th, thv)
+			sum_th += thv
+			n_th += 1
+			s0 = int(world.segs[s0].p)
+		var mean0: float = float(sum_th) / float(maxi(1, n_th))
+		tip_order.append({"i": ti, "th": max_th, "mean": mean0})
+	tip_order.sort_custom(func(a, b):
+		if int(a.th) != int(b.th):
+			return int(a.th) > int(b.th)
+		return float(a.mean) > float(b.mean)
+	)
+	var drawn_arteries := 0
+	var drawn_secondary := 0
+	var drawn_anchors: Array = []
 	for item in tip_order:
-		if drawn_chains >= max_chains:
+		if drawn_arteries >= max_arteries and drawn_secondary >= max_secondary:
 			break
 		var tip = world.tips[int(item.i)]
+		var max_th: int = int(item.th)
 		var pts: Array = []
 		var ths: Array = []
-		## Walk tip → root via parent pointers, then reverse to root→tip.
 		pts.append(Vector2(float(tip.x), float(tip.y)))
 		var si: int = int(tip.seg)
 		var guard := 0
@@ -808,7 +859,7 @@ func _draw_hyphae() -> void:
 			si = int(s.p)
 		if pts.size() < 2:
 			continue
-		## Cull only when the whole chain misses the view (tip-only cull drops nest ribbons).
+		## Cull only when the whole chain misses the view.
 		var any_in := false
 		var stride: int = maxi(1, pts.size() / 8)
 		var pi := 0
@@ -822,46 +873,92 @@ func _draw_hyphae() -> void:
 			continue
 		pts.reverse()
 		ths.reverse()
-		## Ensure ths aligned to segments between pts.
 		while ths.size() < pts.size() - 1:
 			ths.append(0)
-		var sampled: Dictionary = _resample_catmull(pts, ths, step_r)
+		var mean_th: float = _hypha_mean_th(ths)
+		var chain_len: float = _hypha_chain_len(pts)
+		## Prefer thick/long trunks as arteries so late maps keep ~8–15 readable highways.
+		var is_artery: bool = max_th >= 2 or mean_th >= 1.15 or (max_th >= 1 and chain_len > 180.0)
+		if is_artery and drawn_arteries >= max_arteries:
+			is_artery = false
+		if not is_artery and drawn_secondary >= max_secondary:
+			continue
+		## Merge parallel secondaries into arteries.
+		if not is_artery and drawn_anchors.size() > 0:
+			var tip_w: Vector2 = Vector2(float(tip.x), float(tip.y))
+			var mid_w: Vector2 = pts[pts.size() / 2]
+			var near_parallel := false
+			for anchors in drawn_anchors:
+				for ai in range(anchors.size()):
+					var a: Vector2 = anchors[ai]
+					if tip_w.distance_squared_to(a) < 42.0 * 42.0 or mid_w.distance_squared_to(a) < 34.0 * 34.0:
+						near_parallel = true
+						break
+				if near_parallel:
+					break
+			if near_parallel:
+				continue
+		## Secondaries: only distal third so they don't carpet the map.
+		if not is_artery and pts.size() > 8:
+			var keep_from: int = int(float(pts.size()) * 0.62)
+			pts = pts.slice(keep_from)
+			ths = ths.slice(mini(keep_from, ths.size()))
+			while ths.size() < pts.size() - 1:
+				ths.append(0)
+		var sampled: Dictionary = _resample_catmull(pts, ths, step_r if is_artery else step_r * 1.2)
 		var iso_pts: PackedVector2Array = sampled.pts
 		var half_w: PackedFloat32Array = sampled.hw
 		if iso_pts.size() < 2:
 			continue
-		## Additive yellow-green glow stack — soft outer, bright core (batched by quality).
+		## Target full width: arteries 6–14px → half_w ≈ 3–7; secondaries thinner.
+		for wi in range(half_w.size()):
+			if is_artery:
+				## Force readable artery width regardless of thin tip samples.
+				var t_u: float = float(wi) / float(maxi(1, half_w.size() - 1))
+				half_w[wi] = lerpf(6.2, 3.4, t_u) ## root thicker → tip taper within 6–14px full
+			else:
+				half_w[wi] = clampf(half_w[wi] * 0.9, 1.6, 2.8)
+		var fade: float = 1.0 if is_artery else 0.40
+		## Olive glow + lime core (additive stack; no cream blowout).
 		if passes >= 4:
-			_draw_ribbon(iso_pts, half_w, Color(0.45, 0.95, 0.4, 0.10 * bright), 2.6)
-			_draw_ribbon(iso_pts, half_w, Color(0.75, 1.15, 0.45, 0.18 * bright), 1.55)
-			_draw_ribbon(iso_pts, half_w, Color(1.15, 1.45, 0.55, 0.42 * bright), 1.0)
-			_draw_ribbon(iso_pts, half_w, Color(1.55, 1.85, 0.7, 0.55 * bright), 0.38)
+			_draw_ribbon(iso_pts, half_w, Color(col_olive.r, col_olive.g, col_olive.b, 0.38 * bright * fade), 2.2)
+			_draw_ribbon(iso_pts, half_w, Color(col_olive.r, col_olive.g, col_olive.b, 0.32 * bright * fade), 1.45)
+			_draw_ribbon(iso_pts, half_w, Color(col_lime.r, col_lime.g, col_lime.b, 0.70 * bright * fade), 0.85)
+			_draw_ribbon(iso_pts, half_w, Color(col_lime.r, col_lime.g, col_lime.b, 0.88 * bright * fade), 0.38)
 		elif passes >= 2:
-			_draw_ribbon(iso_pts, half_w, Color(0.55, 1.0, 0.42, 0.16 * bright), 2.1)
-			_draw_ribbon(iso_pts, half_w, Color(1.25, 1.55, 0.6, 0.48 * bright), 0.85)
+			_draw_ribbon(iso_pts, half_w, Color(col_olive.r, col_olive.g, col_olive.b, 0.40 * bright * fade), 2.0)
+			_draw_ribbon(iso_pts, half_w, Color(col_lime.r, col_lime.g, col_lime.b, 0.78 * bright * fade), 0.65)
 		else:
-			_draw_ribbon(iso_pts, half_w, Color(1.05, 1.4, 0.55, 0.5 * bright), 1.15)
-		## Optional textured accent using iso_v2 hyfa sprite as ribbon UV wash.
-		if hyfa_tex != null and iso_pts.size() >= 2:
+			_draw_ribbon(iso_pts, half_w, Color(col_olive.r, col_olive.g, col_olive.b, 0.36 * bright * fade), 1.85)
+			_draw_ribbon(iso_pts, half_w, Color(col_lime.r, col_lime.g, col_lime.b, 0.82 * bright * fade), 0.75)
+		if hyfa_tex != null and is_artery and iso_pts.size() >= 2:
 			var mid_i: int = iso_pts.size() / 2
 			var mid: Vector2 = iso_pts[mid_i]
-			var hw_m: float = half_w[mid_i] * 2.2
-			var a: float = 0.16 + 0.1 * world.network_bright
-			draw_texture_rect(hyfa_tex, Rect2(mid - Vector2(hw_m * 2.0, hw_m), Vector2(hw_m * 4.0, hw_m * 2.0)), false, Color(1.2, 1.4, 0.7, a))
-		drawn_chains += 1
+			var hw_m: float = half_w[mid_i] * 1.6
+			var a: float = 0.14 + 0.08 * world.network_bright
+			draw_texture_rect(hyfa_tex, Rect2(mid - Vector2(hw_m * 2.0, hw_m), Vector2(hw_m * 4.0, hw_m * 2.0)), false, Color(col_lime.r, col_lime.g, col_lime.b, a))
+		var anchors2 := PackedVector2Array()
+		var step_a: int = maxi(1, int(pts.size() / 6))
+		for pj in range(0, pts.size(), step_a):
+			anchors2.append(pts[pj])
+		drawn_anchors.append(anchors2)
+		if is_artery:
+			drawn_arteries += 1
+		else:
+			drawn_secondary += 1
 	## Sparse organic node accents only (not hatch).
 	if SwarmGfx.q_level() < 2 and ProArt.has(pro, "myc_decal_hyfa_chomac"):
 		var shown := 0
 		var j := 0
-		var max_nodes: int = 18 if SwarmGfx.q_level() == 0 else 10
+		var max_nodes: int = 14 if SwarmGfx.q_level() == 0 else 8
 		for s2 in world.segs:
 			j += 1
-			if int(s2.th) < 2 or (j % 7) != 0:
+			if int(s2.th) < 2 or (j % 9) != 0:
 				continue
 			var iso_n := Iso.world_to_iso(s2.x1, s2.y1)
 			if not SwarmGfx.iso_in_view(iso_n, _view):
 				continue
-			ProArt.blit(self, pro, "myc_decal_hyfa_chomac", iso_n, 0.26 if not _use_2x else 0.13, Color(1.1, 1.35, 0.85, 0.35))
+			ProArt.blit(self, pro, "myc_decal_hyfa_chomac", iso_n, 0.26 if not _use_2x else 0.13, Color(col_lime.r, col_lime.g, col_lime.b, 0.32))
 			shown += 1
 			if shown > max_nodes:
 				break

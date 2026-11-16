@@ -951,11 +951,16 @@ func _draw_chambers() -> void:
 		var cell = world.royal_cell
 		var glow: float = cell.glow
 		var iso_c := Iso.world_to_iso(cell.x, cell.y)
-		if cell.capped and ProArt.has(pro, "apis_royal_cell"):
+		## Kukla underlay while capped; queen (iso 2:1 top-down bake) once she emerges.
+		if cell.capped and ProArt.has(pro, "apis_royal_cell") and float(cell.queen) < 0.55:
 			ProArt.blit(self, pro, "apis_royal_cell", iso_c, 0.5 if not _use_2x else 0.25, Color(1.15, 1.05, 0.7, 0.75 + glow * 0.25))
-		elif ProArt.has(pro, "apis_queen"):
-			ProArt.blit(self, pro, "apis_queen", iso_c, 0.55 + glow * 0.1 if not _use_2x else 0.28, Color(1.2, 1.1, 0.7, 0.75 + glow * 0.25))
-		elif atlas.has("apis2_plast_zarivy"):
+		if ProArt.has(pro, "apis_queen") and (not cell.capped or float(cell.queen) >= 0.35):
+			## Extra foreshorten so the baked SE queen sits on the iso plane.
+			var qsc: float = (0.62 + glow * 0.08) if not _use_2x else (0.31 + glow * 0.04)
+			draw_set_transform(iso_c, deg_to_rad(-8.0), Vector2(1.08, 0.72))
+			ProArt.blit(self, pro, "apis_queen", Vector2.ZERO, qsc, Color(1.12, 1.05, 0.78, 0.82 + glow * 0.18))
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		elif not ProArt.has(pro, "apis_queen") and atlas.has("apis2_plast_zarivy"):
 			_blit("apis2_plast_zarivy", cell.x, cell.y, 0.28 if not _use_2x else 0.14, Color(1.35, 1.15, 0.55, 0.65 + glow * 0.3))
 			if cell.capped:
 				draw_arc(iso_c, 14.0, 0, TAU, 24, Color(1.2, 1.0, 0.55, 0.55 + cell.queen * 0.3), 1.6)
