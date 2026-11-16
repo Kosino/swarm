@@ -28,7 +28,9 @@ const WORKER_SPEED := 55.0
 const BIG_APPEAR_T := 235.0
 const BIG_R := 32.0
 const BIG_EDGE := 48.0
-const CAM_ZOOM_OUT := 0.72
+## Presentational zoom — colony ~60% of frame; mechanics/timing unchanged.
+const CAM_ZOOM_IN := 2.15
+const CAM_ZOOM_OUT := 1.35
 const CAM_ZOOM_DUR := 2.8
 const DUM_FREQ := 108.0
 const DUM_FREQ_BIG := 52.0

@@ -2,9 +2,16 @@ extends RefCounted
 class_name MyceliumIsoAtlas
 ## Builds AtlasTexture resources (and pivot/offset) from godot_atlas.json (iso v2).
 ## FX sequences: MyceliumIsoAtlas.load_sequences() → name, frames, fps, blend.
+## sprites_2x keys end with `_2x` — stripped so draw code uses logical names.
 
 const ROOT := "res://art/mycelium_iso_v2/"
 const JSON_PATH := ROOT + "godot_atlas.json"
+
+
+static func _logical_name(name: String, use_2x: bool) -> String:
+	if use_2x and name.ends_with("_2x"):
+		return name.substr(0, name.length() - 3)
+	return name
 
 
 static func load_all(use_2x: bool = false) -> Dictionary:
@@ -38,7 +45,8 @@ static func load_all(use_2x: bool = false) -> Dictionary:
 		at.filter_clip = true
 		var pv: Dictionary = s["pivot"]
 		var off: Dictionary = s["offset"]
-		out[name] = {
+		var logical := _logical_name(str(name), use_2x)
+		out[logical] = {
 			"texture": at,
 			"pivot": Vector2(float(pv["x"]), float(pv["y"])),
 			"offset": Vector2(float(off["x"]), float(off["y"])),
@@ -57,7 +65,16 @@ static func load_sequences(use_2x: bool = false) -> Dictionary:
 	var key := "sequences_2x" if use_2x else "sequences"
 	if not parsed.has(key):
 		return {}
-	return parsed[key]
+	var raw: Dictionary = parsed[key]
+	var out := {}
+	for seq_name in raw:
+		var seq: Dictionary = raw[seq_name].duplicate(true)
+		var frames: Array = []
+		for f in seq.get("frames", []):
+			frames.append(_logical_name(str(f), use_2x))
+		seq["frames"] = frames
+		out[str(seq_name)] = seq
+	return out
 
 
 static func apply_to_sprite(sprite: Sprite2D, entry: Dictionary) -> void:

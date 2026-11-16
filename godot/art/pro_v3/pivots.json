@@ -1,0 +1,1283 @@
+{
+  "myc_tex_puda_hola": {
+    "file": "textures/myc_tex_puda_hola.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "pivot": [
+      512,
+      512
+    ],
+    "notes": "tileable iso-compatible ground fill"
+  },
+  "myc_tex_puda_prorostla": {
+    "file": "textures/myc_tex_puda_prorostla.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "pivot": [
+      512,
+      512
+    ],
+    "notes": "tileable iso-compatible ground fill"
+  },
+  "myc_tex_puda_zarici": {
+    "file": "textures/myc_tex_puda_zarici.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "pivot": [
+      512,
+      512
+    ],
+    "notes": "tileable iso-compatible ground fill"
+  },
+  "apis_tex_louka_divoka": {
+    "file": "textures/apis_tex_louka_divoka.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "pivot": [
+      512,
+      512
+    ],
+    "notes": "tileable iso-compatible ground fill"
+  },
+  "apis_tex_louka_osazena": {
+    "file": "textures/apis_tex_louka_osazena.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "pivot": [
+      512,
+      512
+    ],
+    "notes": "tileable iso-compatible ground fill"
+  },
+  "apis_tex_louka_ziva": {
+    "file": "textures/apis_tex_louka_ziva.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "pivot": [
+      512,
+      512
+    ],
+    "notes": "tileable iso-compatible ground fill"
+  },
+  "apis_tex_skala": {
+    "file": "textures/apis_tex_skala.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "pivot": [
+      512,
+      512
+    ],
+    "notes": "tileable iso-compatible ground fill"
+  },
+  "apis_tex_skala_okraj": {
+    "file": "textures/apis_tex_skala_okraj.png",
+    "size": [
+      1024,
+      384
+    ],
+    "pivot": [
+      512,
+      8
+    ],
+    "notes": "tileable along X; rocky rim decal, alpha fades toward meadow-join (bottom). Place along world edge, rock side outward."
+  },
+  "myc_pro_brouk_infikovany": {
+    "file": "sprites/myc_pro_brouk_infikovany.png",
+    "file_2x": "sprites/myc_pro_brouk_infikovany_2x.png",
+    "size": [
+      182,
+      216
+    ],
+    "pivot": [
+      91.0,
+      212.0
+    ],
+    "size_2x": [
+      364,
+      432
+    ],
+    "pivot_2x": [
+      182.0,
+      424.0
+    ],
+    "notes": "infikovaný brouk, Age-3"
+  },
+  "myc_pro_stroj_infikovany": {
+    "file": "sprites/myc_pro_stroj_infikovany.png",
+    "file_2x": "sprites/myc_pro_stroj_infikovany_2x.png",
+    "size": [
+      178,
+      236
+    ],
+    "pivot": [
+      89.0,
+      232.0
+    ],
+    "size_2x": [
+      356,
+      472
+    ],
+    "pivot_2x": [
+      178.0,
+      464.0
+    ],
+    "notes": "infikovaný stroj, Age-3"
+  },
+  "myc_pro_skelet": {
+    "file": "sprites/myc_pro_skelet.png",
+    "file_2x": "sprites/myc_pro_skelet_2x.png",
+    "size": [
+      180,
+      300
+    ],
+    "pivot": [
+      89.24050632911391,
+      296.2025316455696
+    ],
+    "size_2x": [
+      358,
+      600
+    ],
+    "pivot_2x": [
+      178.48101265822783,
+      592.4050632911392
+    ],
+    "notes": "vybělená chitinová kostra obrovského brouka (žebra, hlavový štít), jemně obrostlá hyfami; max výška 1× ~300"
+  },
+  "myc_pro_plodnice_obri": {
+    "file": "sprites/myc_pro_plodnice_obri.png",
+    "file_2x": "sprites/myc_pro_plodnice_obri_2x.png",
+    "size": [
+      154,
+      300
+    ],
+    "pivot": [
+      76.89873417721519,
+      296.2025316455696
+    ],
+    "size_2x": [
+      308,
+      600
+    ],
+    "pivot_2x": [
+      153.79746835443038,
+      592.4050632911392
+    ],
+    "notes": "obří plodnice, Age-3 13:40"
+  },
+  "myc_pro_plodnice_obri_tobolka": {
+    "file": "sprites/myc_pro_plodnice_obri_tobolka.png",
+    "file_2x": "sprites/myc_pro_plodnice_obri_tobolka_2x.png",
+    "size": [
+      154,
+      300
+    ],
+    "pivot": [
+      76.89873417721519,
+      296.2025316455696
+    ],
+    "size_2x": [
+      308,
+      600
+    ],
+    "pivot_2x": [
+      153.79746835443038,
+      592.4050632911392
+    ],
+    "notes": "obří plodnice se zářící tobolkou, Age-3 14:40; stejný pivot jako myc_pro_plodnice_obri"
+  },
+  "apis_pro_stroj_rezavy": {
+    "file": "sprites/apis_pro_stroj_rezavy.png",
+    "file_2x": "sprites/apis_pro_stroj_rezavy_2x.png",
+    "size": [
+      210,
+      276
+    ],
+    "pivot": [
+      105.0,
+      272.0
+    ],
+    "size_2x": [
+      420,
+      552
+    ],
+    "pivot_2x": [
+      210.0,
+      544.0
+    ],
+    "notes": "rezavý stroj, Age-3"
+  },
+  "apis_pro_strom_kvet": {
+    "file": "sprites/apis_pro_strom_kvet.png",
+    "file_2x": "sprites/apis_pro_strom_kvet_2x.png",
+    "size": [
+      182,
+      300
+    ],
+    "pivot": [
+      90.18987341772151,
+      296.2025316455696
+    ],
+    "size_2x": [
+      362,
+      600
+    ],
+    "pivot_2x": [
+      180.37974683544303,
+      592.4050632911392
+    ],
+    "notes": "kvetoucí strom, max výška 1× ~300 px"
+  },
+  "apis_pro_kralovna": {
+    "file": "sprites/apis_pro_kralovna.png",
+    "file_2x": "sprites/apis_pro_kralovna_2x.png",
+    "size": [
+      130,
+      124
+    ],
+    "pivot": [
+      65.0,
+      120.0
+    ],
+    "size_2x": [
+      260,
+      248
+    ],
+    "pivot_2x": [
+      130.0,
+      240.0
+    ],
+    "notes": "královna, iso 3/4 shora (opravná iterace), dlouhý pruhovaný zadeček, větší než dělnice"
+  },
+  "apis_pro_kukla": {
+    "file": "sprites/apis_pro_kukla.png",
+    "file_2x": "sprites/apis_pro_kukla_2x.png",
+    "size": [
+      134,
+      216
+    ],
+    "pivot": [
+      66.0,
+      212.0
+    ],
+    "size_2x": [
+      266,
+      432
+    ],
+    "pivot_2x": [
+      132.0,
+      424.0
+    ],
+    "notes": "královská kukla / zavíčkovaná buňka se září"
+  },
+  "logo_swarm": {
+    "file": "menu/logo_swarm.png",
+    "size": [
+      1024,
+      350
+    ],
+    "pivot": [
+      512.0,
+      175.0
+    ],
+    "notes": "transparent wordmark SWARM, brass/chitin; center pivot"
+  },
+  "logo_swarm_sm": {
+    "file": "menu/logo_swarm_sm.png",
+    "size": [
+      512,
+      176
+    ],
+    "pivot": [
+      256.0,
+      88.0
+    ],
+    "notes": "smaller logo (512 px wide)"
+  },
+  "menu_dual": {
+    "file": "menu/menu_dual.png",
+    "size": [
+      1920,
+      1080
+    ],
+    "pivot": [
+      960,
+      540
+    ],
+    "notes": "výběr Rodu / dvojí svět, klidné pásy nahoře a dole pro logo a UI"
+  },
+  "menu_apis": {
+    "file": "menu/menu_apis.png",
+    "size": [
+      1920,
+      1080
+    ],
+    "pivot": [
+      960,
+      540
+    ],
+    "notes": "pozadí Apis, klidná zóna vlevo a dole pro UI"
+  },
+  "menu_mycelium": {
+    "file": "menu/menu_mycelium.png",
+    "size": [
+      1920,
+      1080
+    ],
+    "pivot": [
+      960,
+      540
+    ],
+    "notes": "pozadí Mycelium, klidná zóna vlevo pro UI"
+  },
+  "myc_decal_kamen_a": {
+    "notes": "olivový kámen A; pivot u paty, iso-kompatibilní",
+    "file": "decals/myc_decal_kamen_a.png",
+    "file_2x": "decals/myc_decal_kamen_a_2x.png",
+    "size": [
+      85,
+      63
+    ],
+    "pivot": [
+      42.0,
+      60.0
+    ],
+    "size_2x": [
+      170,
+      126
+    ],
+    "pivot_2x": [
+      84.0,
+      120.0
+    ]
+  },
+  "myc_decal_kamen_b": {
+    "notes": "olivový kámen B; pivot u paty, iso-kompatibilní",
+    "file": "decals/myc_decal_kamen_b.png",
+    "file_2x": "decals/myc_decal_kamen_b_2x.png",
+    "size": [
+      85,
+      65
+    ],
+    "pivot": [
+      42.0,
+      62.0
+    ],
+    "size_2x": [
+      170,
+      130
+    ],
+    "pivot_2x": [
+      84.0,
+      124.0
+    ]
+  },
+  "myc_decal_koren_a": {
+    "notes": "zkroucený kořen / větev A; pivot u paty, iso-kompatibilní",
+    "file": "decals/myc_decal_koren_a.png",
+    "file_2x": "decals/myc_decal_koren_a_2x.png",
+    "size": [
+      128,
+      86
+    ],
+    "pivot": [
+      63.51145038167939,
+      83.05343511450381
+    ],
+    "size_2x": [
+      256,
+      172
+    ],
+    "pivot_2x": [
+      127.02290076335878,
+      166.10687022900763
+    ]
+  },
+  "myc_decal_koren_b": {
+    "notes": "zkroucený kořen / větev B; pivot u paty, iso-kompatibilní",
+    "file": "decals/myc_decal_koren_b.png",
+    "file_2x": "decals/myc_decal_koren_b_2x.png",
+    "size": [
+      128,
+      86
+    ],
+    "pivot": [
+      63.5187969924812,
+      81.80451127819549
+    ],
+    "size_2x": [
+      256,
+      172
+    ],
+    "pivot_2x": [
+      127.0375939849624,
+      163.60902255639098
+    ]
+  },
+  "myc_decal_mech_a": {
+    "notes": "mechový polštář A; pivot u paty, iso-kompatibilní",
+    "file": "decals/myc_decal_mech_a.png",
+    "file_2x": "decals/myc_decal_mech_a_2x.png",
+    "size": [
+      101,
+      74
+    ],
+    "pivot": [
+      50.0,
+      71.0
+    ],
+    "size_2x": [
+      202,
+      148
+    ],
+    "pivot_2x": [
+      100.0,
+      142.0
+    ]
+  },
+  "myc_decal_mech_b": {
+    "notes": "mechový polštář B; pivot u paty, iso-kompatibilní",
+    "file": "decals/myc_decal_mech_b.png",
+    "file_2x": "decals/myc_decal_mech_b_2x.png",
+    "size": [
+      109,
+      77
+    ],
+    "pivot": [
+      54.0,
+      74.0
+    ],
+    "size_2x": [
+      218,
+      154
+    ],
+    "pivot_2x": [
+      108.0,
+      148.0
+    ]
+  },
+  "myc_decal_trs_mech": {
+    "notes": "trs mechu / trávy; pivot u paty, iso-kompatibilní",
+    "file": "decals/myc_decal_trs_mech.png",
+    "file_2x": "decals/myc_decal_trs_mech_2x.png",
+    "size": [
+      85,
+      72
+    ],
+    "pivot": [
+      42.0,
+      69.0
+    ],
+    "size_2x": [
+      170,
+      144
+    ],
+    "pivot_2x": [
+      84.0,
+      138.0
+    ]
+  },
+  "myc_decal_listi_a": {
+    "notes": "spadané listí A; pivot u paty, iso-kompatibilní",
+    "file": "decals/myc_decal_listi_a.png",
+    "file_2x": "decals/myc_decal_listi_a_2x.png",
+    "size": [
+      93,
+      64
+    ],
+    "pivot": [
+      46.0,
+      61.0
+    ],
+    "size_2x": [
+      186,
+      128
+    ],
+    "pivot_2x": [
+      92.0,
+      122.0
+    ]
+  },
+  "myc_decal_listi_b": {
+    "notes": "spadané listí B; pivot u paty, iso-kompatibilní",
+    "file": "decals/myc_decal_listi_b.png",
+    "file_2x": "decals/myc_decal_listi_b_2x.png",
+    "size": [
+      93,
+      62
+    ],
+    "pivot": [
+      46.0,
+      59.0
+    ],
+    "size_2x": [
+      186,
+      124
+    ],
+    "pivot_2x": [
+      92.0,
+      118.0
+    ]
+  },
+  "myc_decal_houbicka": {
+    "notes": "drobná houba, jádro #B0C008; pivot u paty, iso-kompatibilní",
+    "file": "decals/myc_decal_houbicka.png",
+    "file_2x": "decals/myc_decal_houbicka_2x.png",
+    "size": [
+      76,
+      88
+    ],
+    "pivot": [
+      38.0,
+      85.0
+    ],
+    "size_2x": [
+      152,
+      176
+    ],
+    "pivot_2x": [
+      76.0,
+      170.0
+    ]
+  },
+  "myc_decal_hyfa_chomac": {
+    "notes": "chomáč hyf, organický, ne mřížka; pivot u paty, iso-kompatibilní",
+    "file": "decals/myc_decal_hyfa_chomac.png",
+    "file_2x": "decals/myc_decal_hyfa_chomac_2x.png",
+    "size": [
+      117,
+      78
+    ],
+    "pivot": [
+      58.0,
+      75.0
+    ],
+    "size_2x": [
+      234,
+      156
+    ],
+    "pivot_2x": [
+      116.0,
+      150.0
+    ]
+  },
+  "myc_decal_kvet_mech": {
+    "notes": "drobný lesní květ; pivot u paty, iso-kompatibilní",
+    "file": "decals/myc_decal_kvet_mech.png",
+    "file_2x": "decals/myc_decal_kvet_mech_2x.png",
+    "size": [
+      65,
+      80
+    ],
+    "pivot": [
+      32.0,
+      77.0
+    ],
+    "size_2x": [
+      130,
+      160
+    ],
+    "pivot_2x": [
+      64.0,
+      154.0
+    ]
+  },
+  "apis_decal_oblazek_a": {
+    "notes": "drobný oblázek A; pivot u paty (skvrna střed), iso-kompatibilní",
+    "file": "decals/apis_decal_oblazek_a.png",
+    "file_2x": "decals/apis_decal_oblazek_a_2x.png",
+    "size": [
+      45,
+      40
+    ],
+    "pivot": [
+      22.0,
+      37.0
+    ],
+    "size_2x": [
+      90,
+      80
+    ],
+    "pivot_2x": [
+      44.0,
+      74.0
+    ]
+  },
+  "apis_decal_oblazek_b": {
+    "notes": "plástvový oblázek B; pivot u paty (skvrna střed), iso-kompatibilní",
+    "file": "decals/apis_decal_oblazek_b.png",
+    "file_2x": "decals/apis_decal_oblazek_b_2x.png",
+    "size": [
+      61,
+      54
+    ],
+    "pivot": [
+      30.0,
+      51.0
+    ],
+    "size_2x": [
+      122,
+      108
+    ],
+    "pivot_2x": [
+      60.0,
+      102.0
+    ]
+  },
+  "apis_decal_kamen_a": {
+    "notes": "suchý kámen A; pivot u paty (skvrna střed), iso-kompatibilní",
+    "file": "decals/apis_decal_kamen_a.png",
+    "file_2x": "decals/apis_decal_kamen_a_2x.png",
+    "size": [
+      77,
+      68
+    ],
+    "pivot": [
+      38.0,
+      65.0
+    ],
+    "size_2x": [
+      154,
+      136
+    ],
+    "pivot_2x": [
+      76.0,
+      130.0
+    ]
+  },
+  "apis_decal_kamen_b": {
+    "notes": "suchý kámen B; pivot u paty (skvrna střed), iso-kompatibilní",
+    "file": "decals/apis_decal_kamen_b.png",
+    "file_2x": "decals/apis_decal_kamen_b_2x.png",
+    "size": [
+      85,
+      64
+    ],
+    "pivot": [
+      42.0,
+      61.0
+    ],
+    "size_2x": [
+      170,
+      128
+    ],
+    "pivot_2x": [
+      84.0,
+      122.0
+    ]
+  },
+  "apis_decal_trs_a": {
+    "notes": "trs trávy A; pivot u paty (skvrna střed), iso-kompatibilní",
+    "file": "decals/apis_decal_trs_a.png",
+    "file_2x": "decals/apis_decal_trs_a_2x.png",
+    "size": [
+      85,
+      72
+    ],
+    "pivot": [
+      42.0,
+      69.0
+    ],
+    "size_2x": [
+      170,
+      144
+    ],
+    "pivot_2x": [
+      84.0,
+      138.0
+    ]
+  },
+  "apis_decal_kerl": {
+    "notes": "drobný keřík / klasnatý trs; pivot u paty (skvrna střed), iso-kompatibilní",
+    "file": "decals/apis_decal_kerl.png",
+    "file_2x": "decals/apis_decal_kerl_2x.png",
+    "size": [
+      93,
+      86
+    ],
+    "pivot": [
+      46.0,
+      83.0
+    ],
+    "size_2x": [
+      186,
+      172
+    ],
+    "pivot_2x": [
+      92.0,
+      166.0
+    ]
+  },
+  "apis_decal_trs_b": {
+    "notes": "trs trávy B; pivot u paty (skvrna střed), iso-kompatibilní",
+    "file": "decals/apis_decal_trs_b.png",
+    "file_2x": "decals/apis_decal_trs_b_2x.png",
+    "size": [
+      85,
+      76
+    ],
+    "pivot": [
+      42.0,
+      73.0
+    ],
+    "size_2x": [
+      170,
+      152
+    ],
+    "pivot_2x": [
+      84.0,
+      146.0
+    ]
+  },
+  "apis_decal_trs_suchy": {
+    "notes": "suchý zlatavý trs; pivot u paty (skvrna střed), iso-kompatibilní",
+    "file": "decals/apis_decal_trs_suchy.png",
+    "file_2x": "decals/apis_decal_trs_suchy_2x.png",
+    "size": [
+      85,
+      71
+    ],
+    "pivot": [
+      42.0,
+      68.0
+    ],
+    "size_2x": [
+      170,
+      142
+    ],
+    "pivot_2x": [
+      84.0,
+      136.0
+    ]
+  },
+  "apis_decal_kvet_a": {
+    "notes": "trso květů A, jantar; pivot u paty (skvrna střed), iso-kompatibilní",
+    "file": "decals/apis_decal_kvet_a.png",
+    "file_2x": "decals/apis_decal_kvet_a_2x.png",
+    "size": [
+      85,
+      78
+    ],
+    "pivot": [
+      42.0,
+      75.0
+    ],
+    "size_2x": [
+      170,
+      156
+    ],
+    "pivot_2x": [
+      84.0,
+      150.0
+    ]
+  },
+  "apis_decal_kvet_b": {
+    "notes": "trso květů B; pivot u paty (skvrna střed), iso-kompatibilní",
+    "file": "decals/apis_decal_kvet_b.png",
+    "file_2x": "decals/apis_decal_kvet_b_2x.png",
+    "size": [
+      93,
+      77
+    ],
+    "pivot": [
+      46.0,
+      74.0
+    ],
+    "size_2x": [
+      186,
+      154
+    ],
+    "pivot_2x": [
+      92.0,
+      148.0
+    ]
+  },
+  "apis_decal_kvet_trso": {
+    "notes": "trso květů, smetanovo-jantarové; pivot u paty (skvrna střed), iso-kompatibilní",
+    "file": "decals/apis_decal_kvet_trso.png",
+    "file_2x": "decals/apis_decal_kvet_trso_2x.png",
+    "size": [
+      89,
+      66
+    ],
+    "pivot": [
+      44.0,
+      63.0
+    ],
+    "size_2x": [
+      178,
+      132
+    ],
+    "pivot_2x": [
+      88.0,
+      126.0
+    ]
+  },
+  "apis_decal_pyl_skvrna": {
+    "notes": "pylová / medová skvrna; pivot střed; pivot u paty (skvrna střed), iso-kompatibilní",
+    "file": "decals/apis_decal_pyl_skvrna.png",
+    "file_2x": "decals/apis_decal_pyl_skvrna_2x.png",
+    "size": [
+      85,
+      51
+    ],
+    "pivot": [
+      42.5,
+      25.5
+    ],
+    "size_2x": [
+      170,
+      102
+    ],
+    "pivot_2x": [
+      85.0,
+      51.0
+    ]
+  },
+  "reticle_apis": {
+    "notes": "organický zaměřovač Apis, iso elipsa 2:1, pivot střed; 128×64 a 256×128",
+    "file": "ui/reticle_apis.png",
+    "file_2x": "ui/reticle_apis_2x.png",
+    "size": [
+      128,
+      64
+    ],
+    "pivot": [
+      64.0,
+      32.0
+    ],
+    "size_2x": [
+      256,
+      128
+    ],
+    "pivot_2x": [
+      128.0,
+      64.0
+    ]
+  },
+  "reticle_myc": {
+    "notes": "organický zaměřovač Mycelium, iso elipsa 2:1, pivot střed; 128×64 a 256×128",
+    "file": "ui/reticle_myc.png",
+    "file_2x": "ui/reticle_myc_2x.png",
+    "size": [
+      128,
+      64
+    ],
+    "pivot": [
+      64.0,
+      32.0
+    ],
+    "size_2x": [
+      256,
+      128
+    ],
+    "pivot_2x": [
+      128.0,
+      64.0
+    ]
+  },
+  "reticle_apis_pulse_00": {
+    "notes": "pulzní snímek 1/6 zaměřovače apis, stejné plátno 128×64",
+    "file": "ui/reticle_apis_pulse_00.png",
+    "file_2x": "ui/reticle_apis_pulse_00_2x.png",
+    "size": [
+      128,
+      64
+    ],
+    "pivot": [
+      64.0,
+      32.0
+    ],
+    "size_2x": [
+      256,
+      128
+    ],
+    "pivot_2x": [
+      128.0,
+      64.0
+    ]
+  },
+  "reticle_apis_pulse_01": {
+    "notes": "pulzní snímek 2/6 zaměřovače apis, stejné plátno 128×64",
+    "file": "ui/reticle_apis_pulse_01.png",
+    "file_2x": "ui/reticle_apis_pulse_01_2x.png",
+    "size": [
+      128,
+      64
+    ],
+    "pivot": [
+      64.0,
+      32.0
+    ],
+    "size_2x": [
+      256,
+      128
+    ],
+    "pivot_2x": [
+      128.0,
+      64.0
+    ]
+  },
+  "reticle_apis_pulse_02": {
+    "notes": "pulzní snímek 3/6 zaměřovače apis, stejné plátno 128×64",
+    "file": "ui/reticle_apis_pulse_02.png",
+    "file_2x": "ui/reticle_apis_pulse_02_2x.png",
+    "size": [
+      128,
+      64
+    ],
+    "pivot": [
+      64.0,
+      32.0
+    ],
+    "size_2x": [
+      256,
+      128
+    ],
+    "pivot_2x": [
+      128.0,
+      64.0
+    ]
+  },
+  "reticle_apis_pulse_03": {
+    "notes": "pulzní snímek 4/6 zaměřovače apis, stejné plátno 128×64",
+    "file": "ui/reticle_apis_pulse_03.png",
+    "file_2x": "ui/reticle_apis_pulse_03_2x.png",
+    "size": [
+      128,
+      64
+    ],
+    "pivot": [
+      64.0,
+      32.0
+    ],
+    "size_2x": [
+      256,
+      128
+    ],
+    "pivot_2x": [
+      128.0,
+      64.0
+    ]
+  },
+  "reticle_apis_pulse_04": {
+    "notes": "pulzní snímek 5/6 zaměřovače apis, stejné plátno 128×64",
+    "file": "ui/reticle_apis_pulse_04.png",
+    "file_2x": "ui/reticle_apis_pulse_04_2x.png",
+    "size": [
+      128,
+      64
+    ],
+    "pivot": [
+      64.0,
+      32.0
+    ],
+    "size_2x": [
+      256,
+      128
+    ],
+    "pivot_2x": [
+      128.0,
+      64.0
+    ]
+  },
+  "reticle_apis_pulse_05": {
+    "notes": "pulzní snímek 6/6 zaměřovače apis, stejné plátno 128×64",
+    "file": "ui/reticle_apis_pulse_05.png",
+    "file_2x": "ui/reticle_apis_pulse_05_2x.png",
+    "size": [
+      128,
+      64
+    ],
+    "pivot": [
+      64.0,
+      32.0
+    ],
+    "size_2x": [
+      256,
+      128
+    ],
+    "pivot_2x": [
+      128.0,
+      64.0
+    ]
+  },
+  "reticle_myc_pulse_00": {
+    "notes": "pulzní snímek 1/6 zaměřovače myc, stejné plátno 128×64",
+    "file": "ui/reticle_myc_pulse_00.png",
+    "file_2x": "ui/reticle_myc_pulse_00_2x.png",
+    "size": [
+      128,
+      64
+    ],
+    "pivot": [
+      64.0,
+      32.0
+    ],
+    "size_2x": [
+      256,
+      128
+    ],
+    "pivot_2x": [
+      128.0,
+      64.0
+    ]
+  },
+  "reticle_myc_pulse_01": {
+    "notes": "pulzní snímek 2/6 zaměřovače myc, stejné plátno 128×64",
+    "file": "ui/reticle_myc_pulse_01.png",
+    "file_2x": "ui/reticle_myc_pulse_01_2x.png",
+    "size": [
+      128,
+      64
+    ],
+    "pivot": [
+      64.0,
+      32.0
+    ],
+    "size_2x": [
+      256,
+      128
+    ],
+    "pivot_2x": [
+      128.0,
+      64.0
+    ]
+  },
+  "reticle_myc_pulse_02": {
+    "notes": "pulzní snímek 3/6 zaměřovače myc, stejné plátno 128×64",
+    "file": "ui/reticle_myc_pulse_02.png",
+    "file_2x": "ui/reticle_myc_pulse_02_2x.png",
+    "size": [
+      128,
+      64
+    ],
+    "pivot": [
+      64.0,
+      32.0
+    ],
+    "size_2x": [
+      256,
+      128
+    ],
+    "pivot_2x": [
+      128.0,
+      64.0
+    ]
+  },
+  "reticle_myc_pulse_03": {
+    "notes": "pulzní snímek 4/6 zaměřovače myc, stejné plátno 128×64",
+    "file": "ui/reticle_myc_pulse_03.png",
+    "file_2x": "ui/reticle_myc_pulse_03_2x.png",
+    "size": [
+      128,
+      64
+    ],
+    "pivot": [
+      64.0,
+      32.0
+    ],
+    "size_2x": [
+      256,
+      128
+    ],
+    "pivot_2x": [
+      128.0,
+      64.0
+    ]
+  },
+  "reticle_myc_pulse_04": {
+    "notes": "pulzní snímek 5/6 zaměřovače myc, stejné plátno 128×64",
+    "file": "ui/reticle_myc_pulse_04.png",
+    "file_2x": "ui/reticle_myc_pulse_04_2x.png",
+    "size": [
+      128,
+      64
+    ],
+    "pivot": [
+      64.0,
+      32.0
+    ],
+    "size_2x": [
+      256,
+      128
+    ],
+    "pivot_2x": [
+      128.0,
+      64.0
+    ]
+  },
+  "reticle_myc_pulse_05": {
+    "notes": "pulzní snímek 6/6 zaměřovače myc, stejné plátno 128×64",
+    "file": "ui/reticle_myc_pulse_05.png",
+    "file_2x": "ui/reticle_myc_pulse_05_2x.png",
+    "size": [
+      128,
+      64
+    ],
+    "pivot": [
+      64.0,
+      32.0
+    ],
+    "size_2x": [
+      256,
+      128
+    ],
+    "pivot_2x": [
+      128.0,
+      64.0
+    ]
+  },
+  "planeta2_dalka": {
+    "file": "ending/planeta2_dalka.png",
+    "size": [
+      1002,
+      1032
+    ],
+    "pivot": [
+      501.0,
+      516.0
+    ],
+    "notes": "vzdálená planeta, průhledné pozadí, středový pivot, tónovatelná; ~1024"
+  },
+  "orbit_bg": {
+    "file": "ending/orbit_bg.png",
+    "size": [
+      1920,
+      1080
+    ],
+    "pivot": [
+      960,
+      540
+    ],
+    "notes": "orbitální pozadí 1920×1080, hvězdy a mlhovina v paletě, prostor pro planetu"
+  },
+  "panel_9slice": {
+    "file": "ui/panel_9slice.png",
+    "size": [
+      395,
+      307
+    ],
+    "pivot": [
+      197.5,
+      153.5
+    ],
+    "nine_slice": {
+      "left": 102,
+      "top": 74,
+      "right": 74,
+      "bottom": 74
+    },
+    "notes": "9-slice mosazný plástvový panel pro Godot NinePatchRect; okraje left/top/right/bottom"
+  },
+  "btn_normal": {
+    "file": "ui/btn_normal.png",
+    "size": [
+      330,
+      100
+    ],
+    "pivot": [
+      165.0,
+      50.0
+    ],
+    "nine_slice": {
+      "left": 28,
+      "top": 16,
+      "right": 28,
+      "bottom": 16
+    },
+    "notes": "tlačítko idle, 9-slice, stejná velikost jako hover/pressed"
+  },
+  "btn_hover": {
+    "file": "ui/btn_hover.png",
+    "size": [
+      330,
+      100
+    ],
+    "pivot": [
+      165.0,
+      50.0
+    ],
+    "nine_slice": {
+      "left": 28,
+      "top": 16,
+      "right": 28,
+      "bottom": 16
+    },
+    "notes": "tlačítko hover (jantarová obruba), 9-slice, stejná velikost"
+  },
+  "btn_pressed": {
+    "file": "ui/btn_pressed.png",
+    "size": [
+      330,
+      100
+    ],
+    "pivot": [
+      165.0,
+      50.0
+    ],
+    "nine_slice": {
+      "left": 28,
+      "top": 16,
+      "right": 28,
+      "bottom": 16
+    },
+    "notes": "tlačítko pressed (vmáčknuté), 9-slice, stejná velikost"
+  },
+  "icon_apis": {
+    "file": "ui/icon_apis.png",
+    "file_64": "ui/icon_apis_64.png",
+    "size": [
+      128,
+      128
+    ],
+    "pivot": [
+      64.0,
+      64.0
+    ],
+    "size_64": [
+      64,
+      64
+    ],
+    "pivot_64": [
+      32.0,
+      32.0
+    ],
+    "notes": "ikona Rodu Apis, včela / plástev, průhledné; 128 a 64 px"
+  },
+  "icon_mycelium": {
+    "file": "ui/icon_mycelium.png",
+    "file_64": "ui/icon_mycelium_64.png",
+    "size": [
+      128,
+      128
+    ],
+    "pivot": [
+      64.0,
+      64.0
+    ],
+    "size_64": [
+      64,
+      64
+    ],
+    "pivot_64": [
+      32.0,
+      32.0
+    ],
+    "notes": "ikona Rodu Mycelium, hyfa / plodnice, průhledné; 128 a 64 px"
+  }
+}

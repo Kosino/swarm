@@ -36,7 +36,9 @@ const TWITCH_INTERVAL := 3.2
 const TWITCH_DUR := 0.55
 const SHIVER_DUR := 0.9
 
-const CAM_ZOOM_OUT := 0.7
+## Presentational zoom — colony ~60% of frame; mechanics/timing unchanged.
+const CAM_ZOOM_IN := 2.65
+const CAM_ZOOM_OUT := 1.55
 const CAM_ZOOM_DUR := 3.2
 
 const DUM_FREQ := 96.0
