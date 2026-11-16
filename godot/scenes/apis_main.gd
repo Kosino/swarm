@@ -171,6 +171,12 @@ func _ready() -> void:
 			world.brass_sheen = maxf(world.brass_sheen, 0.95)
 		if capture_at >= 820.0 and world.royal_cell == null:
 			world._trigger_royal()
+		## Capture-only: pin dual-colony sync so Age-3 stills read Dva úly foreshadow.
+		if capture_at >= 820.0 and capture_at < 878.0:
+			world.hive_pulse_sync = maxf(world.hive_pulse_sync, 0.95)
+			if world.second_hive != null:
+				world.second_hive.pulse = maxf(float(world.second_hive.pulse), 0.95)
+			world.highway_glow = maxf(world.highway_glow, 0.9)
 		if capture_at >= 878.0 and world.seeds_time == null and world.royal_cell != null:
 			world._trigger_seeds_hint()
 		if capture_at >= 890.0 and world.mvp_end_time == null:
@@ -936,6 +942,9 @@ func _draw_routes_trails() -> void:
 		var uln := "apis2_ul_zarivy" if sh.pulse > 0.4 or world.highway_glow > 0.5 else "apis2_ul_dostaveny"
 		if atlas.has(uln):
 			_blit(uln, sh.x, sh.y, 0.35 if not _use_2x else 0.18, Color(1, 1, 1, 0.75 + sh.pulse * 0.2))
+		## Age-3 Dva úly foreshadow — both colonies pulse on one mycelium-gold filament.
+		if world.royal_cell != null or world.hive_pulse_sync > 0.35:
+			_draw_dual_colony_sync(hc, Vector2(sh.x, sh.y), maxf(world.hive_pulse_sync, float(sh.pulse)))
 	if world.swarm_time != null and atlas.has("apis2_overlay_med"):
 		_blit("apis2_overlay_med", hc.x, hc.y - 40.0, 0.4 if not _use_2x else 0.2, Color(1.3, 1.15, 0.7, 0.28 + world.highway_glow * 0.2))
 
@@ -1361,9 +1370,15 @@ func _draw_ending_planet() -> void:
 	if ProArt.has(pro, "orbit_bg"):
 		ProArt.blit(self, pro, "orbit_bg", cam, 0.78 / z, Color(1, 1, 1, a_bg))
 	draw_rect(Rect2(cam - vp * 0.55 / z, vp * 1.1 / z), Color(0.03, 0.02, 0.01, minf(0.32, world.orbit_t * 0.08)), true)
+	## Home Apis world — zlatá tečka; distant moist Mycelium glimmer beyond.
+	var home := cam + Vector2(0, vp.y * 0.14 / z)
 	var p2 := cam + Vector2(-vp.x * 0.3 / z, -vp.y * 0.18 / z)
 	var tw: float = 0.55 + 0.45 * abs(sin(world.time * 2.2))
 	var planet_a: float = _other_planet_a * tw
+	var home_a: float = minf(1.0, world.orbit_t * 0.45) * (0.7 + 0.3 * abs(sin(world.time * 1.8)))
+	draw_circle(home, 9.0 / z, Color(1.0, 0.78, 0.35, home_a * 0.55))
+	draw_circle(home, 4.5 / z, Color(1.25, 1.05, 0.55, home_a))
+	draw_arc(home, 14.0 / z, 0, TAU, 28, Color(1.0, 0.85, 0.4, home_a * 0.35), 1.2)
 	var psc: float = 0.24 / z * camera.zoom.x
 	if ProArt.has(pro, "ending_planet"):
 		## Cool Mycelium glimmer rings.
@@ -1376,13 +1391,60 @@ func _draw_ending_planet() -> void:
 	else:
 		draw_circle(p2, 12.0, Color(0.4, 0.75, 0.5, planet_a))
 		draw_arc(p2, 20.0, 0, TAU, 28, Color(0.35, 0.7, 0.48, planet_a * 0.45), 1.6)
-	## Sealed cell pulse toward the distant green planet.
+	## Dva úly foreshadow — mycelium filament linking home → distant Mycelium.
+	var link_a: float = planet_a * 0.55
+	_draw_orbit_mycelium_link(home, p2, link_a, Color(1.1, 0.95, 0.45, 1.0), Color(0.55, 1.05, 0.65, 1.0))
+	## Sealed cell pulse rides the filament toward the green planet.
 	if world.royal_cell != null:
-		var tip := cam + Vector2(0, vp.y * 0.12 / z)
-		var pa: float = 0.2 + 0.45 * abs(sin(world.time * 2.4)) * float(world.royal_cell.glow)
-		draw_line(tip, p2, Color(1.15, 0.9, 0.4, pa * 0.4), 2.4, true)
-		draw_line(tip, p2, Color(1.35, 1.1, 0.55, pa), 1.1, true)
+		var pa: float = 0.25 + 0.5 * abs(sin(world.time * 2.4)) * float(world.royal_cell.glow)
+		draw_line(home, p2, Color(1.15, 0.9, 0.4, pa * 0.35), 2.8 / z, true)
+		draw_line(home, p2, Color(1.4, 1.15, 0.6, pa), 1.2 / z, true)
 	## Logo lives only on EndPanel (Honza nit — no redundant world-space title).
+
+
+func _draw_dual_colony_sync(ha: Vector2, hb: Vector2, pulse: float) -> void:
+	## Lean presentation — shared pulse along the join highway (no second-hive sim rewrite).
+	var a := Iso.world_to_iso(ha.x, ha.y)
+	var b := Iso.world_to_iso(hb.x, hb.y)
+	var mid := a.lerp(b, 0.5) + Vector2(0, -18.0)
+	var alpha: float = 0.18 + 0.35 * clampf(pulse, 0.0, 1.0)
+	var steps := 12
+	for i in range(1, steps + 1):
+		var u0: float = float(i - 1) / float(steps)
+		var u1: float = float(i) / float(steps)
+		var p0: Vector2 = a.lerp(b, u0) + (mid - a.lerp(b, 0.5)) * sin(u0 * PI)
+		var p1: Vector2 = a.lerp(b, u1) + (mid - a.lerp(b, 0.5)) * sin(u1 * PI)
+		var glow: float = 0.45 + 0.55 * abs(sin(world.time * 2.0 + u1 * TAU))
+		draw_line(p0, p1, Color(0.75, 1.05, 0.55, alpha * 0.45 * glow), 3.2, true)
+		draw_line(p0, p1, Color(1.25, 1.05, 0.45, alpha * glow), 1.4, true)
+	var mote_u: float = fmod(world.time * 0.35, 1.0)
+	var mote: Vector2 = a.lerp(b, mote_u) + (mid - a.lerp(b, 0.5)) * sin(mote_u * PI)
+	draw_circle(mote, 3.5, Color(1.3, 1.15, 0.55, alpha + 0.2))
+
+
+func _draw_orbit_mycelium_link(a: Vector2, b: Vector2, alpha: float, col_a: Color, col_b: Color) -> void:
+	## Soft hypha thread + traveling spores between dual planets (presentation only).
+	if alpha <= 0.02:
+		return
+	var mid: Vector2 = (a + b) * 0.5 + Vector2(18.0, -28.0) * (1.0 / maxf(camera.zoom.x, 0.2))
+	var pts := PackedVector2Array()
+	var steps := 14
+	for i in range(steps + 1):
+		var u: float = float(i) / float(steps)
+		var p1: Vector2 = a.lerp(b, u)
+		var bend: Vector2 = (mid - (a + b) * 0.5) * sin(u * PI)
+		pts.append(p1 + bend)
+	for i in range(1, pts.size()):
+		var u2: float = float(i) / float(pts.size() - 1)
+		var c: Color = col_a.lerp(col_b, u2)
+		c.a = alpha * (0.35 + 0.4 * sin(u2 * PI))
+		draw_line(pts[i - 1], pts[i], c, 2.2, true)
+		draw_line(pts[i - 1], pts[i], Color(c.r, c.g, c.b, c.a * 0.55), 4.0, true)
+	var mote_u: float = fmod(world.time * 0.22, 1.0)
+	var mi: int = clampi(int(mote_u * float(pts.size() - 1)), 0, pts.size() - 1)
+	var mote: Vector2 = pts[mi]
+	draw_circle(mote, 3.2, Color(1.15, 1.2, 0.65, alpha * 0.85))
+	draw_circle(mote, 7.0, Color(0.9, 1.05, 0.5, alpha * 0.22))
 
 
 func _draw_guidance() -> void:
