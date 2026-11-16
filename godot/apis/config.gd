@@ -76,12 +76,19 @@ const WOW_BRASS := 745.0
 const WOW_ROYAL := 820.0
 const WOW_SEEDS := 880.0
 const WOW_END := 900.0
+## Mid-game drought (GDD „Sucho“) — between dusk hint and winter; not a median gate.
+const WOW_DROUGHT := 625.0
 const START10_T := 600.0
 const MEADOW2_DIST := 380.0
 const HINT_DUR := 4.5
 const HOLD_AGE3_S := 0.55
 const RUST_MACHINE_DIST := 340.0
 const RUST_MACHINE_R := 42.0
+## Age-3 building roles (visual specialization; timing unchanged).
+const ROLE_COMB := "comb"
+const ROLE_NURSERY := "nursery"
+const ROLE_WORKSHOP := "workshop"
+const ROLE_HONEY := "honey"
 
 const IDLE_GHOST_S := 8.0
 const MAX_GHOST_PERFORMS := 2
